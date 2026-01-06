@@ -31,15 +31,20 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     showResultText(text, { score, level });
 
     addHistory({
+      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      dateISO: new Date().toISOString().slice(0, 10), // YYYY-MM-DD
       date: new Date().toLocaleDateString("ko-KR"),
       screen,
       minutes,
       reason,
       intended,
-      score,
-      level,
+
+      // baseScore(기본 점수)와 level은 네가 이미 계산 중인 값 사용
+      baseScore: score,
+      completed: false,
+
       resultText: text
-    });
+});
 
 
   } catch (e) {
@@ -89,10 +94,16 @@ function saveHistory(items) {
 
 function addHistory(item) {
   const items = loadHistory();
-  items.unshift(item); // 최신이 위로
+  items.unshift(item);
+
   const trimmed = items.slice(0, HISTORY_LIMIT);
-  saveHistory(trimmed);
+  const recomputed = recomputeProgress(trimmed);
+
+  saveHistory(recomputed);
   renderHistory();
+
+  // 방금 저장한(최신) 기록을 선택 상태로 UI에 반영
+  setSelectedRecord(recomputed[0]?.id);
 }
 
 function renderHistory() {
@@ -123,7 +134,12 @@ function renderHistory() {
       if (!picked) return;
 
       // 결과 다시 표시
-      showResultText(picked.resultText, { score: picked.score, level: picked.level });
+      setSelectedRecord(picked.id);
+
+      showResultText(picked.resultText, {
+        score: picked.finalScore ?? picked.score,
+        level: picked.level
+      });
     });
   });
 
@@ -192,6 +208,62 @@ function calcLevel(score) {
   return "D";
 }
 
+function streakBonus(streak) {
+  if (streak >= 3) return 10;
+  if (streak === 2) return 8;
+  if (streak === 1) return 5;
+  return 0;
+}
+
+function daysBetween(aISO, bISO) {
+  // aISO, bISO: "YYYY-MM-DD"
+  const a = new Date(aISO + "T00:00:00");
+  const b = new Date(bISO + "T00:00:00");
+  const ms = b - a;
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
+// 기록 전체를 훑어서 streak/finalScore/level을 재계산
+function recomputeProgress(history) {
+  // 날짜 오름차순(과거 -> 현재)로 정렬해서 streak 계산
+  const sorted = [...history].sort((x, y) => (x.dateISO || "").localeCompare(y.dateISO || ""));
+
+  let streak = 0;
+  let prevDate = null;
+
+  for (const item of sorted) {
+    // dateISO 없는 옛 기록은 streak 계산 제외(안전)
+    if (!item.dateISO) {
+      item.streak = 0;
+      item.finalScore = item.baseScore ?? item.score ?? 0;
+      item.level = calcLevel(item.finalScore);
+      continue;
+    }
+
+    const isConsecutive =
+      prevDate && daysBetween(prevDate, item.dateISO) === 1;
+
+    if (item.completed) {
+      streak = isConsecutive ? (streak + 1) : 1;
+    } else {
+      streak = 0;
+    }
+
+    item.streak = streak;
+
+    const base = Number(item.baseScore ?? item.score ?? 0);
+    const bonus = streakBonus(item.streak);
+    item.finalScore = clamp(base + bonus, 0, 100);
+    item.level = calcLevel(item.finalScore);
+
+    prevDate = item.dateISO;
+  }
+
+  // 원래 배열(history)에 반영 (id로 매칭)
+  const map = new Map(sorted.map(x => [x.id, x]));
+  return history.map(x => map.get(x.id) || x);
+}
+
 
 document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEY);
@@ -200,3 +272,59 @@ document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
 
 renderHistory();
 
+let selectedRecordId = null;
+
+function setSelectedRecord(id) {
+  selectedRecordId = id;
+  renderCompleteSection();
+}
+
+function renderCompleteSection() {
+  const section = document.getElementById("completeSection");
+  const check = document.getElementById("completeCheck");
+  const info = document.getElementById("completeInfo");
+  if (!section || !check || !info) return;
+
+  const history = loadHistory();
+  const rec = history.find(x => x.id === selectedRecordId);
+
+  if (!rec) {
+    section.style.display = "none";
+    return;
+  }
+
+  section.style.display = "block";
+  check.checked = !!rec.completed;
+
+  const base = Number(rec.baseScore ?? rec.score ?? 0);
+  const streak = Number(rec.streak ?? 0);
+  const bonus = rec.completed ? streakBonus(streak) : 0;
+  const finalScore = rec.completed ? rec.finalScore : base;
+
+  info.innerText = rec.completed
+    ? `완료 처리됨 · 스트릭 ${streak}일 · 보너스 +${bonus} · 최종 ${finalScore}점`
+    : `미완료 · 완료 체크 시 보너스 적용 (스트릭에 따라 +5~+10)`;
+}
+
+document.getElementById("completeCheck")?.addEventListener("change", (e) => {
+  const checked = e.target.checked;
+
+  const history = loadHistory();
+  const idx = history.findIndex(x => x.id === selectedRecordId);
+  if (idx === -1) return;
+
+  history[idx].completed = checked;
+
+  const recomputed = recomputeProgress(history);
+  saveHistory(recomputed);
+
+  // 결과/기록/평균 다시 렌더
+  renderHistory();
+
+  // 현재 선택 기록 다시 표시(점수/레벨 갱신 반영)
+  const rec = recomputed.find(x => x.id === selectedRecordId);
+  if (rec) {
+    showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
+  }
+  renderCompleteSection();
+});
