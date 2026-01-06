@@ -1,29 +1,31 @@
 document.getElementById("submitBtn").addEventListener("click", async () => {
-  const screen = document.getElementById("screen").value;
-  const minutes = document.getElementById("minutes").value;
-  const intended = document.getElementById("intended").value;
+  const btn = document.getElementById("submitBtn");
 
-  const reasonEl = document.querySelector('input[name="reason"]:checked');
-  if (!reasonEl) {
-    alert("보기 시작한 이유를 선택해라.");
-    return;
-  }
-  const reason = reasonEl.value;
-  if (!screen) {
-    alert("가장 오래 본 화면을 선택해라.");
-    return;
-  }
-  if (!minutes || !intended) {
-    alert("모든 입력을 채워라.");
-    return;
-  }
-
-  document.getElementById("result").innerText = "분석 중...";
+  // 🔒 연타 방지 시작
+  btn.disabled = true;
+  const originalText = btn.innerText;
+  btn.innerText = "분석 중...";
 
   try {
+    const screen = document.getElementById("screen").value;
+    const minutes = document.getElementById("minutes").value;
+    const intended = document.getElementById("intended").value;
+
+    const reasonEl = document.querySelector('input[name="reason"]:checked');
+    if (!reasonEl) {
+      alert("보기 시작한 이유를 선택해라.");
+      return;
+    }
+    const reason = reasonEl.value;
+
+    if (!minutes || !intended) {
+      alert("모든 입력을 채워라.");
+      return;
+    }
+
     const text = await getAnalysis({ screen, minutes, reason, intended });
 
-    const lines = text.split("\n").filter(line => line.trim() !== "");
+    const lines = text.split("\n").filter(l => l.trim() !== "");
 
     document.getElementById("result").innerHTML = `
       <p><strong>${lines[0] || ""}</strong></p>
@@ -31,7 +33,12 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       <p style="color:red;">${lines[2] || ""}</p>
     `;
   } catch (e) {
-    document.getElementById("result").innerText = "에러 발생: " + (e?.message || e);
+    document.getElementById("result").innerText =
+      "에러 발생: " + (e.message || e);
+  } finally {
+    // 🔓 연타 방지 해제 (무조건 실행)
+    btn.disabled = false;
+    btn.innerText = originalText;
   }
 });
 
