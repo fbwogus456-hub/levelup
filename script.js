@@ -1,42 +1,28 @@
 document.getElementById("submitBtn").addEventListener("click", async () => {
   const btn = document.getElementById("submitBtn");
 
-  // 🔒 연타 방지 시작
-  btn.disabled = true;
+  // 1) 입력 검증 먼저 (여기서 return 해도 버튼 잠금 전이라 안전)
+  const screen = document.getElementById("screen").value;
+  const minutes = document.getElementById("minutes").value;
+  const intended = document.getElementById("intended").value;
+  const reasonEl = document.querySelector('input[name="reason"]:checked');
+
+  if (!reasonEl) return alert("보기 시작한 이유를 선택해라.");
+  if (!minutes || !intended) return alert("모든 입력을 채워라.");
+
+  const reason = reasonEl.value;
+
+  // 2) 여기서부터 잠금
   const originalText = btn.innerText;
+  btn.disabled = true;
   btn.innerText = "분석 중...";
 
   try {
-    const screen = document.getElementById("screen").value;
-    const minutes = document.getElementById("minutes").value;
-    const intended = document.getElementById("intended").value;
-
-    const reasonEl = document.querySelector('input[name="reason"]:checked');
-    if (!reasonEl) {
-      alert("보기 시작한 이유를 선택해라.");
-      return;
-    }
-    const reason = reasonEl.value;
-
-    if (!minutes || !intended) {
-      alert("모든 입력을 채워라.");
-      return;
-    }
-
     const text = await getAnalysis({ screen, minutes, reason, intended });
-
-    const lines = text.split("\n").filter(l => l.trim() !== "");
-
-    document.getElementById("result").innerHTML = `
-      <p><strong>${lines[0] || ""}</strong></p>
-      <p>${lines[1] || ""}</p>
-      <p style="color:red;">${lines[2] || ""}</p>
-    `;
+    // 결과 출력...
   } catch (e) {
-    document.getElementById("result").innerText =
-      "에러 발생: " + (e.message || e);
+    document.getElementById("result").innerText = "에러: " + (e.message || e);
   } finally {
-    // 🔓 연타 방지 해제 (무조건 실행)
     btn.disabled = false;
     btn.innerText = originalText;
   }
