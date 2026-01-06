@@ -31,19 +31,23 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       <p style="color:red;">${lines[2] || ""}</p>
     `;
   } catch (e) {
-    document.getElementById("result").innerText = "에러 발생";
+    document.getElementById("result").innerText = "에러 발생: " + (e?.message || e);
   }
 });
 
 async function getAnalysis(data) {
   const response = await fetch("/api/analyze", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
   });
 
   const result = await response.json();
+
+  if (!response.ok) {
+    // 서버가 준 에러를 그대로 던진다
+    throw new Error(result.error || JSON.stringify(result));
+  }
+
   return result.result;
 }
