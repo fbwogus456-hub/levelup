@@ -126,6 +126,25 @@ function renderHistory() {
       showResultText(picked.resultText, { score: picked.score, level: picked.level });
     });
   });
+
+  const avgEl = document.getElementById("avgScore");
+  if (avgEl) {
+    const scores = loadHistory()
+      .slice(0, HISTORY_SHOW)
+      .map(x => Number(x.score))
+      .filter(n => !Number.isNaN(n));
+
+    if (scores.length === 0) {
+      avgEl.innerText = "";
+    } else {
+      const avg = Math.round(
+        scores.reduce((a, b) => a + b, 0) / scores.length
+      );
+      avgEl.innerText = `최근 ${scores.length}회 평균 점수: ${avg}점`;
+    }
+  }
+
+
 }
 
 function showResultText(text, meta) {
