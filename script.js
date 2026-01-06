@@ -45,8 +45,9 @@ async function getAnalysis(data) {
   const result = await response.json();
 
   if (!response.ok) {
-    // 서버가 준 에러를 그대로 던진다
-    throw new Error(result.error || JSON.stringify(result));
+    const detail = result.detail ? `\n\nDETAIL:\n${result.detail}` : "";
+    const status = result.status ? `\nSTATUS: ${result.status}` : "";
+    throw new Error((result.error || "Request failed") + status + detail);
   }
 
   return result.result;
