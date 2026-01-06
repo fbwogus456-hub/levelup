@@ -102,8 +102,8 @@ function addHistory(item) {
   saveHistory(recomputed);
   renderHistory();
   renderWeeklyReport();
-  setSelectedRecord(recomputed[0]?.id);
-  // 방금 저장한(최신) 기록을 선택 상태로 UI에 반영
+
+  // 최신 기록을 선택 상태로
   setSelectedRecord(recomputed[0]?.id);
 }
 
@@ -117,15 +117,6 @@ function renderHistory() {
     listEl.innerHTML = "<li>기록이 없다.</li>";
     return;
   }
-
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function addDays(iso, delta) {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + delta);
-  return d.toISOString().slice(0, 10);
 }
 
 function last7DaysISO() {
@@ -609,30 +600,6 @@ function onActionCompleted(recordId) {
 }
 
 
-function onActionCompleted(recordId) {
-  clearActionState();
-  stopTimerTick();
-
-  const history = loadHistory();
-  const idx = history.findIndex(x => x.id === recordId);
-  if (idx !== -1) {
-    history[idx].completed = true;
-    const recomputed = recomputeProgress(history);
-    saveHistory(recomputed);
-
-    const rec = recomputed.find(x => x.id === recordId);
-    if (rec) {
-      showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
-      setSelectedRecord(rec.id);
-    }
-  }
-
-  renderHistory();
-  renderCompleteSection();
-  renderActionSection();
-  renderWeeklyReport();
-  setSelectedRecord(recomputed[0]?.id);
-}
 
 
 document.getElementById("startActionBtn")?.addEventListener("click", () => {
