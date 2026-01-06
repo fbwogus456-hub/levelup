@@ -1,11 +1,6 @@
 document.getElementById("submitBtn").addEventListener("click", async () => {
   const btn = document.getElementById("submitBtn");
 
-  // 🔒 연타 방지 시작
-  btn.disabled = true;
-  const originalText = btn.innerText;
-  btn.innerText = "분석 중...";
-
   try {
     const screen = document.getElementById("screen").value;
     const minutes = document.getElementById("minutes").value;
@@ -23,28 +18,40 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       return;
     }
 
+    // ✅ 여기부터 연타 방지 시작
+    btn.disabled = true;
+    const originalText = btn.innerText;
+    btn.innerText = "분석 중...";
+
     const text = await getAnalysis({ screen, minutes, reason, intended });
 
     const score = calcScore(minutes, reason);
     const level = calcLevel(score);
-
+  
     showResultText(text, { score, level });
 
     addHistory({
       id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-      dateISO: new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+      dateISO: new Date().toISOString().slice(0, 10),
       date: new Date().toLocaleDateString("ko-KR"),
       screen,
       minutes,
       reason,
       intended,
-
-      // baseScore(기본 점수)와 level은 네가 이미 계산 중인 값 사용
       baseScore: score,
       completed: false,
-
       resultText: text
-});
+    });
+
+  } catch (e) {
+    document.getElementById("result").innerText =
+      "에러 발생: " + (e.message || e);
+  } finally {
+      // 🔓 연타 방지 해제
+    btn.disabled = false;
+    btn.innerText = "레벨업 결과 보기";
+  }
+
 
 
   } catch (e) {
