@@ -6,19 +6,18 @@ export default async function handler(req, res) {
   try {
     const { screen, minutes, reason, intended } = req.body;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
+        model: "gpt-4.1-mini",
+        input: [
           {
             role: "system",
-            content:
-              "너는 사용자의 하루를 냉정하게 평가하는 분석자다. 공감이나 위로는 하지 마라."
+            content: "너는 사용자의 하루를 냉정하게 평가하는 분석자다. 공감이나 위로는 하지 마라."
           },
           {
             role: "user",
@@ -38,16 +37,21 @@ export default async function handler(req, res) {
       })
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return res.status(500).json({ error: errorText });
-    }
-
     const data = await response.json();
 
-    res.status(200).json({
-      result: data.choices[0].message.content
-    });
+    // 🔴 여기서 안전하게 꺼낸다
+    const text =
+      data.output_text ||
+      data.output?.[0]?.content?.[0]?.text;
+
+    if (!text) {
+      return res.status(500).json({
+        error: "AI 응답이 비어 있습니다.",
+        raw: data
+      });
+    }
+
+    res.status(200).json({ result: text });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
