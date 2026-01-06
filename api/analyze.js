@@ -62,6 +62,7 @@ export default async function handler(req, res) {
     // 5) OpenAI가 에러면 그대로 반환 (중요)
     if (!response.ok) {
       const errText = await response.text();
+      console.error("OpenAI error:", response.status, errText);
       return res.status(500).json({
         error: "OpenAI request failed",
         status: response.status,
