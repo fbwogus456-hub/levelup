@@ -101,7 +101,8 @@ function addHistory(item) {
 
   saveHistory(recomputed);
   renderHistory();
-
+  renderWeeklyReport();
+  setSelectedRecord(recomputed[0]?.id);
   // 방금 저장한(최신) 기록을 선택 상태로 UI에 반영
   setSelectedRecord(recomputed[0]?.id);
 }
@@ -116,6 +117,158 @@ function renderHistory() {
     listEl.innerHTML = "<li>기록이 없다.</li>";
     return;
   }
+
+function isoToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(iso, delta) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function last7DaysISO() {
+  const today = isoToday();
+  const days = [];
+  for (let i = 6; i >= 0; i--) days.push(addDays(today, -i));
+  return days;
+}
+
+function groupByISO(history, days) {
+  const map = new Map(days.map(d => [d, []]));
+  for (const h of history) {
+    if (!h.dateISO) continue;
+    if (map.has(h.dateISO)) map.get(h.dateISO).push(h);
+  }
+  return map;
+}
+
+function sum(arr) {
+  return arr.reduce((a, b) => a + b, 0);
+}
+
+function mostCommon(arr) {
+  const m = new Map();
+  for (const x of arr) m.set(x, (m.get(x) || 0) + 1);
+  let best = null, bestN = -1;
+  for (const [k, n] of m.entries()) {
+    if (n > bestN) { best = k; bestN = n; }
+  }
+  return best;
+}
+
+function renderWeeklyReport() {
+  const container = document.getElementById("weeklyReport");
+  const canvas = document.getElementById("weeklyChart");
+  if (!container || !canvas) return;
+
+  const history = loadHistory();
+  const days = last7DaysISO();
+  const byDay = groupByISO(history, days);
+
+  // 일별 대표 점수(그날 마지막 기록의 finalScore) + 총 사용시간
+  const dayScores = [];
+  const dayMinutes = [];
+
+  let allItems = [];
+  for (const d of days) {
+    const items = byDay.get(d) || [];
+    allItems = allItems.concat(items);
+
+    if (items.length === 0) {
+      dayScores.push(null);
+      dayMinutes.push(0);
+      continue;
+    }
+
+    // 기록은 최신이 앞(unshift)일 가능성이 높지만, 안전하게 dateISO 동일하므로 그냥 첫 번째를 "최신"으로 취급
+    // 만약 동일 날짜 다건이면 최신 1건 기준
+    const latest = items[0];
+    const score = Number(latest.finalScore ?? latest.score ?? latest.baseScore);
+    dayScores.push(Number.isFinite(score) ? score : null);
+
+    const minutesSum = sum(items.map(x => Number(x.minutes) || 0));
+    dayMinutes.push(minutesSum);
+  }
+
+  // 주간 요약
+  const scoresForAvg = dayScores.filter(x => typeof x === "number");
+  const avgScore = scoresForAvg.length ? Math.round(sum(scoresForAvg) / scoresForAvg.length) : null;
+
+  const totalMinutes = sum(dayMinutes);
+  const completedCount = allItems.filter(x => x.completed).length;
+  const totalCount = allItems.length;
+  const completionRate = totalCount ? Math.round((completedCount / totalCount) * 100) : null;
+
+  const topScreen = mostCommon(allItems.map(x => x.screen).filter(Boolean));
+  const topReason = mostCommon(allItems.map(x => x.reason).filter(Boolean));
+
+  container.innerHTML = `
+    <div style="background:#f5f5f5; padding:12px;">
+      <div><strong>평균 점수:</strong> ${avgScore ?? "-"}점</div>
+      <div><strong>총 낭비 시간:</strong> ${totalMinutes}분</div>
+      <div><strong>완료율(제약 지킴):</strong> ${completionRate ?? "-"}%</div>
+      <div><strong>가장 많이 본 화면:</strong> ${topScreen ?? "-"}</div>
+      <div><strong>가장 흔한 이유:</strong> ${topReason ?? "-"}</div>
+    </div>
+  `;
+
+  drawWeeklyChart(canvas, days, dayScores, dayMinutes);
+}
+
+function drawWeeklyChart(canvas, days, dayScores, dayMinutes) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // 여백
+  const padL = 30, padR = 10, padT = 10, padB = 30;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+
+  // 축 그리기
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT + plotH);
+  ctx.lineTo(padL + plotW, padT + plotH);
+  ctx.stroke();
+
+  // 점수(0~100)를 막대 높이로
+  const n = days.length;
+  const gap = 6;
+  const barW = (plotW - gap * (n - 1)) / n;
+
+  // 분(minutes)은 점수 막대 위에 작은 선으로 표시(스케일 따로)
+  const maxMin = Math.max(1, ...dayMinutes);
+
+  for (let i = 0; i < n; i++) {
+    const x = padL + i * (barW + gap);
+
+    // 점수 막대
+    const score = dayScores[i];
+    const scoreH = (typeof score === "number") ? (score / 100) * plotH : 0;
+    const y = padT + plotH - scoreH;
+
+    ctx.fillRect(x, y, barW, scoreH);
+
+    // minutes marker (0~maxMin -> 0~plotH)
+    const m = dayMinutes[i] || 0;
+    const my = padT + plotH - (m / maxMin) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(x, my);
+    ctx.lineTo(x + barW, my);
+    ctx.stroke();
+
+    // 라벨(날짜의 MM-DD)
+    const label = days[i].slice(5);
+    ctx.fillText(label, x, padT + plotH + 20);
+  }
+
+  // 범례
+  ctx.fillText("막대=점수, 선=분(상대)", padL, padT + 10);
+}
+
 
   listEl.innerHTML = items
     .map((it, idx) => {
@@ -271,6 +424,7 @@ document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
 });
 
 renderHistory();
+renderWeeklyReport();
 
 let selectedRecordId = null;
 
@@ -322,7 +476,8 @@ document.getElementById("completeCheck")?.addEventListener("change", (e) => {
 
   // 결과/기록/평균 다시 렌더
   renderHistory();
-
+  renderWeeklyReport();
+  setSelectedRecord(recomputed[0]?.id);
   // 현재 선택 기록 다시 표시(점수/레벨 갱신 반영)
   const rec = recomputed.find(x => x.id === selectedRecordId);
   if (rec) {
@@ -475,6 +630,8 @@ function onActionCompleted(recordId) {
   renderHistory();
   renderCompleteSection();
   renderActionSection();
+  renderWeeklyReport();
+  setSelectedRecord(recomputed[0]?.id);
 }
 
 
