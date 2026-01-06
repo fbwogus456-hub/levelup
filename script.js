@@ -277,6 +277,8 @@ let selectedRecordId = null;
 function setSelectedRecord(id) {
   selectedRecordId = id;
   renderCompleteSection();
+  renderActionSection();
+
 }
 
 function renderCompleteSection() {
@@ -327,4 +329,175 @@ document.getElementById("completeCheck")?.addEventListener("change", (e) => {
     showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
   }
   renderCompleteSection();
+});
+
+
+function extractConstraint(text) {
+  const lines = String(text).split("\n").map(l => l.trim()).filter(Boolean);
+  // "3."으로 시작하는 줄 찾기
+  const line3 = lines.find(l => l.startsWith("3."));
+  return line3 ? line3.replace(/^3\.\s*/, "") : (lines[2] || "");
+}
+
+const ACTION_KEY = "levelup_action_v1";
+let timerInterval = null;
+
+function renderActionSection() {
+  const section = document.getElementById("actionSection");
+  const actionTextEl = document.getElementById("actionText");
+  const timerTextEl = document.getElementById("timerText");
+  const startBtn = document.getElementById("startActionBtn");
+  const stopBtn = document.getElementById("stopActionBtn");
+
+  if (!section || !actionTextEl || !timerTextEl || !startBtn || !stopBtn) return;
+
+  const history = loadHistory();
+  const rec = history.find(x => x.id === selectedRecordId);
+  if (!rec) {
+    section.style.display = "none";
+    return;
+  }
+
+  // 선택된 기록의 3번 제약 텍스트
+  const constraint = extractConstraint(rec.resultText);
+  actionTextEl.innerText = `제약: ${constraint}`;
+
+  section.style.display = "block";
+
+  const action = loadActionState();
+
+  if (action && action.recordId === rec.id) {
+    // 진행중
+    startBtn.style.display = "none";
+    stopBtn.style.display = "inline-block";
+    updateTimerText(action, timerTextEl);
+    startTimerTick();
+  } else {
+    // 미진행
+    startBtn.style.display = "inline-block";
+    stopBtn.style.display = "none";
+    timerTextEl.innerText = "";
+    stopTimerTick();
+  }
+}
+
+function loadActionState() {
+  try {
+    return JSON.parse(localStorage.getItem(ACTION_KEY));
+  } catch {
+    return null;
+  }
+}
+function saveActionState(obj) {
+  localStorage.setItem(ACTION_KEY, JSON.stringify(obj));
+}
+function clearActionState() {
+  localStorage.removeItem(ACTION_KEY);
+}
+
+
+function updateTimerText(action, el) {
+  const now = Date.now();
+  const remainingMs = action.endsAt - now;
+
+  if (remainingMs <= 0) {
+    el.innerText = "완료! 제약 달성.";
+    onActionCompleted(action.recordId);
+    return;
+  }
+
+  const totalSec = Math.floor(remainingMs / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  el.innerText = `남은 시간: ${mm}분 ${ss}초`;
+}
+
+function startTimerTick() {
+  if (timerInterval) return;
+  timerInterval = setInterval(() => {
+    const timerTextEl = document.getElementById("timerText");
+    const action = loadActionState();
+    if (!action || !timerTextEl) return stopTimerTick();
+    updateTimerText(action, timerTextEl);
+  }, 1000);
+}
+
+function stopTimerTick() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+
+function onActionCompleted(recordId) {
+  clearActionState();
+  stopTimerTick();
+
+  const history = loadHistory();
+  const idx = history.findIndex(x => x.id === recordId);
+  if (idx !== -1) {
+    history[idx].completed = true;
+    const recomputed = recomputeProgress(history);
+    saveHistory(recomputed);
+
+    const rec = recomputed.find(x => x.id === recordId);
+    if (rec) {
+      showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
+      setSelectedRecord(rec.id);
+    }
+  }
+
+  renderHistory();
+  renderCompleteSection();
+  renderActionSection();
+}
+
+
+function onActionCompleted(recordId) {
+  clearActionState();
+  stopTimerTick();
+
+  const history = loadHistory();
+  const idx = history.findIndex(x => x.id === recordId);
+  if (idx !== -1) {
+    history[idx].completed = true;
+    const recomputed = recomputeProgress(history);
+    saveHistory(recomputed);
+
+    const rec = recomputed.find(x => x.id === recordId);
+    if (rec) {
+      showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
+      setSelectedRecord(rec.id);
+    }
+  }
+
+  renderHistory();
+  renderCompleteSection();
+  renderActionSection();
+}
+
+
+document.getElementById("startActionBtn")?.addEventListener("click", () => {
+  const history = loadHistory();
+  const rec = history.find(x => x.id === selectedRecordId);
+  if (!rec) return;
+
+  const minutes = Number(document.getElementById("actionMinutes")?.value || 120);
+  const durationMs = Math.max(10, Math.min(600, minutes)) * 60 * 1000;
+
+  const action = {
+    recordId: rec.id,
+    startedAt: Date.now(),
+    endsAt: Date.now() + durationMs
+  };
+
+  saveActionState(action);
+  renderActionSection();
+});
+
+document.getElementById("stopActionBtn")?.addEventListener("click", () => {
+  clearActionState();
+  stopTimerTick();
+  renderActionSection();
 });
