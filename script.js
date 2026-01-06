@@ -168,25 +168,26 @@ function clamp(n, min, max) {
 function calcScore(minutes, reason) {
   const m = Number(minutes) || 0;
 
-  const timePenalty = m * 0.5;
-
   const reasonPenaltyMap = {
-    "할 일을 피하려고": 20,
-    "습관적으로": 10,
-    "피곤해서": 15,
+    "할 일을 피하려고": 15,
+    "습관적으로": 8,
+    "피곤해서": 10,
     "심심해서": 5
   };
+  const reasonPenalty = reasonPenaltyMap[reason] ?? 8;
 
-  const reasonPenalty = reasonPenaltyMap[reason] ?? 10;
+  // 시간 패널티: 0~50 사이에서 완만하게 증가
+  // m=0 -> 0, m=30 -> ~21, m=120 -> ~38, m=240 -> ~44
+  const timePenalty = 50 * (1 - Math.exp(-m / 60));
 
   const raw = 100 - timePenalty - reasonPenalty;
-  return Math.round(clamp(raw, 0, 100));
+  return Math.round(Math.max(0, Math.min(100, raw)));
 }
 
 function calcLevel(score) {
-  if (score >= 90) return "S";
-  if (score >= 75) return "A";
-  if (score >= 60) return "B";
+  if (score >= 85) return "S";
+  if (score >= 70) return "A";
+  if (score >= 55) return "B";
   if (score >= 40) return "C";
   return "D";
 }
