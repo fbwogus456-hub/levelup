@@ -25,13 +25,17 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 
     const text = await getAnalysis({ screen, minutes, reason, intended });
 
-    const lines = text.split("\n").filter(l => l.trim() !== "");
+    showResultText(text);
 
-    document.getElementById("result").innerHTML = `
-      <p><strong>${lines[0] || ""}</strong></p>
-      <p>${lines[1] || ""}</p>
-      <p style="color:red;">${lines[2] || ""}</p>
-    `;
+    addHistory({
+      date: new Date().toLocaleDateString("ko-KR"),
+      screen,
+      minutes,
+      reason,
+      intended,
+      resultText: text
+    });
+
   } catch (e) {
     document.getElementById("result").innerText =
       "에러 발생: " + (e.message || e);
@@ -60,3 +64,78 @@ async function getAnalysis(data) {
 
   return result.result;
 }
+
+const STORAGE_KEY = "levelup_history_v1";
+const HISTORY_LIMIT = 10;     // 저장은 10개까지
+const HISTORY_SHOW = 7;       // 화면에는 7개만 보여줌
+
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(items) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+}
+
+function addHistory(item) {
+  const items = loadHistory();
+  items.unshift(item); // 최신이 위로
+  const trimmed = items.slice(0, HISTORY_LIMIT);
+  saveHistory(trimmed);
+  renderHistory();
+}
+
+function renderHistory() {
+  const listEl = document.getElementById("historyList");
+  if (!listEl) return;
+
+  const items = loadHistory().slice(0, HISTORY_SHOW);
+
+  if (items.length === 0) {
+    listEl.innerHTML = "<li>기록이 없다.</li>";
+    return;
+  }
+
+  listEl.innerHTML = items
+    .map((it, idx) => {
+      const title = `${it.date} · ${it.screen} ${it.minutes}분 · ${it.reason}`;
+      return `<li style="margin:8px 0;">
+        <button type="button" data-index="${idx}" class="historyItemBtn">${title}</button>
+      </li>`;
+    })
+    .join("");
+
+  // 클릭 이벤트 연결
+  document.querySelectorAll(".historyItemBtn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const index = Number(e.currentTarget.dataset.index);
+      const picked = loadHistory()[index];
+      if (!picked) return;
+
+      // 결과 다시 표시
+      showResultText(picked.resultText);
+    });
+  });
+}
+
+function showResultText(text) {
+  const lines = String(text).split("\n").filter(l => l.trim() !== "");
+  document.getElementById("result").innerHTML = `
+    <p><strong>${lines[0] || ""}</strong></p>
+    <p>${lines[1] || ""}</p>
+    <p style="color:red;">${lines[2] || ""}</p>
+  `;
+}
+
+
+document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
+  localStorage.removeItem(STORAGE_KEY);
+  renderHistory();
+});
+
+renderHistory();
+
