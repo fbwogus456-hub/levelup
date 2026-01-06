@@ -25,7 +25,10 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 
     const text = await getAnalysis({ screen, minutes, reason, intended });
 
-    showResultText(text);
+    const score = calcScore(minutes, reason);
+    const level = calcLevel(score);
+
+    showResultText(text, { score, level });
 
     addHistory({
       date: new Date().toLocaleDateString("ko-KR"),
@@ -33,8 +36,11 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       minutes,
       reason,
       intended,
+      score,
+      level,
       resultText: text
     });
+
 
   } catch (e) {
     document.getElementById("result").innerText =
@@ -102,7 +108,7 @@ function renderHistory() {
 
   listEl.innerHTML = items
     .map((it, idx) => {
-      const title = `${it.date} · ${it.screen} ${it.minutes}분 · ${it.reason}`;
+      const title = `${it.date} · ${it.level || "-"} ${it.score ?? "-"}점 · ${it.screen} ${it.minutes}분 · ${it.reason}`;
       return `<li style="margin:8px 0;">
         <button type="button" data-index="${idx}" class="historyItemBtn">${title}</button>
       </li>`;
@@ -117,18 +123,53 @@ function renderHistory() {
       if (!picked) return;
 
       // 결과 다시 표시
-      showResultText(picked.resultText);
+      showResultText(picked.resultText, { score: picked.score, level: picked.level });
     });
   });
 }
 
-function showResultText(text) {
+function showResultText(text, meta) {
   const lines = String(text).split("\n").filter(l => l.trim() !== "");
+  const scoreLine = meta ? `레벨: ${meta.level} · 점수: ${meta.score}점` : "";
+
+  // 1줄은 AI가 써도 되지만, 너는 제품을 만든다. 1줄은 시스템이 장악한다.
+  const line1 = scoreLine ? `${scoreLine} — ${lines[0] || ""}` : (lines[0] || "");
+
   document.getElementById("result").innerHTML = `
-    <p><strong>${lines[0] || ""}</strong></p>
+    <p><strong>${line1}</strong></p>
     <p>${lines[1] || ""}</p>
     <p style="color:red;">${lines[2] || ""}</p>
   `;
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function calcScore(minutes, reason) {
+  const m = Number(minutes) || 0;
+
+  const timePenalty = m * 0.5;
+
+  const reasonPenaltyMap = {
+    "할 일을 피하려고": 20,
+    "습관적으로": 10,
+    "피곤해서": 15,
+    "심심해서": 5
+  };
+
+  const reasonPenalty = reasonPenaltyMap[reason] ?? 10;
+
+  const raw = 100 - timePenalty - reasonPenalty;
+  return Math.round(clamp(raw, 0, 100));
+}
+
+function calcLevel(score) {
+  if (score >= 90) return "S";
+  if (score >= 75) return "A";
+  if (score >= 60) return "B";
+  if (score >= 40) return "C";
+  return "D";
 }
 
 
