@@ -10,6 +10,9 @@ const SCORE_MIN = 0;
 const SCORE_MAX = 1000;
 const DAILY_XP_CAP = 120;
 const MISSION_BONUS_XP = 10;
+const RESET_WARN_MINUTES = 10;
+const UI_KEY = "levelup_ui_v2";
+
 
 const HISTORY_SHOW_DAYS = 7;
 const LOG_RETENTION_DAYS = 90;
@@ -165,6 +168,19 @@ function saveLogs(logs) {
   localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
 }
 
+function loadUI() {
+  try {
+    return JSON.parse(localStorage.getItem(UI_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveUI(ui) {
+  localStorage.setItem(UI_KEY, JSON.stringify(ui));
+}
+
+
 function pruneLogs(logs) {
   const today = isoToday();
   return logs.filter(l => l?.dateISO && daysBetween(l.dateISO, today) <= LOG_RETENTION_DAYS);
@@ -311,10 +327,70 @@ function startMidnightCountdownTick() {
 
     // 상한 버튼 UX 갱신
     if (typeof updateCapUX === "function") updateCapUX();
+
+    maybeShowResetWarning();
+
   }, 1000);
 }
 
 let resetBannerTimer = null;
+
+async function showPostResetGoalAndNudge() {
+  const applyResult = document.getElementById("applyResult");
+  const nudgeEl = document.getElementById("nudgeText");
+
+  const logs = loadLogs();
+  const rec = recommendTodayXPGoal(logs);
+  const goal = rec.goalXP;
+  const yXP = rec.yesterdayXP;
+
+  // 1) 목표 XP 추천 배너
+  if (applyResult) {
+    applyResult.innerHTML = `
+      <div class="ok" style="font-size:18px; font-weight:800;">
+        XP 리셋됨
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        오늘 목표 XP 추천: <strong>${goal}</strong> / ${DAILY_XP_CAP}
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        어제 XP: ${yXP} → 오늘은 최소 <strong>+${Math.max(0, goal - yXP)}</strong>만 더 해라.
+      </div>
+    `;
+  }
+
+  // 2) AI 압박 문구(가능하면 AI, 실패하면 로컬)
+  if (nudgeEl) {
+    nudgeEl.style.display = "block";
+    nudgeEl.style.opacity = "0.85";
+    nudgeEl.innerText = "압박 문구 생성 중...";
+  }
+
+  try {
+    const state = loadState();
+    const ai = await fetchNudge({
+      mode: "nudge",
+      todayISO: isoToday(),
+      yesterdayISO: yesterdayISO(),
+      yesterdayXP: yXP,
+      todayGoalXP: goal,
+      level: state.level,
+      score: state.score
+    });
+
+    const text = String(ai.nudgeText || "").trim();
+    if (nudgeEl) {
+      nudgeEl.innerText = text ? `AI: ${text}` : `AI: 어제보다 +${Math.max(0, goal - yXP)}만 더 해도 된다.`;
+    }
+  } catch (e) {
+    // 로컬 대체 문구
+    const delta = Math.max(0, goal - yXP);
+    if (nudgeEl) {
+      nudgeEl.innerText = `AI: 어제보다 +${delta} XP만 더 해도 된다. 못하면 내려간다.`;
+    }
+  }
+}
+
 
 function onMidnightResetUI() {
   // 1) 버튼 즉시 활성화
@@ -350,12 +426,18 @@ function onMidnightResetUI() {
       const html = applyResult.innerText || "";
       if (html.includes("XP 리셋됨")) {
         applyResult.innerHTML = "";
+        const nudgeEl = document.getElementById("nudgeText");
+        if (nudgeEl) {
+          nudgeEl.style.display = "none";
+          nudgeEl.innerText = "";
+        }
       }
     }, 5000);
   }
 
   // 4) 전체 갱신(오늘 XP 0, 주간 반영)
   renderAll();
+  showPostResetGoalAndNudge();
 }
 
 function msUntilMidnight() {
@@ -373,6 +455,39 @@ function formatTimeToMidnight() {
   const ss = totalSec % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
+
+function maybeShowResetWarning() {
+  const ms = msUntilMidnight();
+  const warnMs = RESET_WARN_MINUTES * 60 * 1000;
+
+  // 아직 10분 전이 아니면 숨김
+  const el = document.getElementById("microNotice");
+  if (!el) return;
+
+  if (ms > warnMs) {
+    el.style.display = "none";
+    el.innerText = "";
+    return;
+  }
+
+  // 10분 전부터는 1회만 띄운다(하루당)
+  const today = isoToday();
+  const ui = loadUI();
+
+  if (ui.lastResetWarnISO === today) {
+    // 이미 오늘 표시했으면 유지(카운트다운만 갱신)
+    el.style.display = "block";
+    el.innerText = `리셋 임박: ${formatTimeToMidnight()}`;
+    return;
+  }
+
+  ui.lastResetWarnISO = today;
+  saveUI(ui);
+
+  el.style.display = "block";
+  el.innerText = `리셋 10분 전: ${formatTimeToMidnight()}`;
+}
+
 
 function nextMidnightLabel() {
   const now = new Date();
@@ -456,6 +571,29 @@ function lastNDaysISO(n) {
   for (let i = n - 1; i >= 0; i--) arr.push(addDays(today, -i));
   return arr;
 }
+
+function yesterdayISO() {
+  return addDays(isoToday(), -1);
+}
+
+function sumXPByDate(logs, dateISO) {
+  return logs
+    .filter(l => l && l.dateISO === dateISO)
+    .reduce((a, l) => a + safeInt(l.xp), 0);
+}
+
+function recommendTodayXPGoal(logs) {
+  const y = yesterdayISO();
+  const yXP = sumXPByDate(logs, y);
+
+  // 추천 로직(단순하지만 제품에 충분히 쓸만함)
+  // - 어제보다 +10을 기본 목표로
+  // - 최소 40, 최대 DAILY_XP_CAP
+  const goal = clamp(yXP + 10, 40, DAILY_XP_CAP);
+
+  return { yesterdayXP: yXP, goalXP: goal };
+}
+
 
 function renderWeeklyReport() {
   const summary = document.getElementById("weeklySummary");
