@@ -15,7 +15,11 @@ const LOG_RETENTION_DAYS = 90;
 
 // ----- Utilities -----
 function isoToday() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 function addDays(iso, delta) {
   const d = new Date(iso + "T00:00:00");
@@ -302,10 +306,13 @@ function renderWeeklyReport() {
     <div class="pill">미션 성공률: ${missionRate}%</div>
   `;
 
+  console.log("weekly days/scores:", days, dayScores);
   drawWeeklyChart(canvas, days, dayScores);
 
-  // weekly AI comment (state에 저장해도 되지만 MVP는 DOM 유지)
-  if (!weeklyAI.dataset.text) weeklyAI.innerText = "";
+  // weekly AI comment (없어도 차트는 반드시 그려지게)
+  if (weeklyAI) {
+    if (!weeklyAI.dataset.text) weeklyAI.innerText = "";
+  }
 }
 
 function drawWeeklyChart(canvas, days, dayScores) {
