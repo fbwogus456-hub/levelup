@@ -219,6 +219,18 @@ function minKeepXPForToday(currentScore, currentLevel) {
   return clamp(Math.ceil(xp), 0, DAILY_XP_CAP);
 }
 
+function getLevelBounds(score) {
+  // 레벨 경계: 300/500/700/850 (상한 1000)
+  // Bronze: 0~299, Silver: 300~499, Gold: 500~699, Platinum: 700~849, Diamond: 850~1000
+  const s = safeInt(score);
+
+  if (s >= 850) return { low: 850, next: SCORE_MAX, nextLabel: "상한" };
+  if (s >= 700) return { low: 700, next: 850, nextLabel: "Diamond" };
+  if (s >= 500) return { low: 500, next: 700, nextLabel: "Platinum" };
+  if (s >= 300) return { low: 300, next: 500, nextLabel: "Gold" };
+  return { low: 0, next: 300, nextLabel: "Silver" };
+}
+
 
 // ----- XP calculations -----
 function calcRunXP(km, minutes) {
@@ -305,24 +317,45 @@ function renderHeader() {
   const streakText = document.getElementById("streakText");
   const todayHint = document.getElementById("todayHint");
 
-  if (scoreText) scoreText.innerText = String(state.score);
-  if (levelText) levelText.innerText = String(state.level);
-  if (streakText) streakText.innerText = `${state.streak}일`;
+  const keepHint = document.getElementById("keepHint");
+  const fill = document.getElementById("levelProgressFill");
+
+  scoreText.innerText = String(state.score);
+  levelText.innerText = state.level;
+  streakText.innerText = `${state.streak}일`;
 
   const today = isoToday();
   const logs = loadLogs();
   const todayXP = sumTodayXP(logs, today);
+  todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP}`;
 
-  const remainingXP = Math.max(0, DAILY_XP_CAP - todayXP);
+  // ----- 레벨 경계/진행률 계산 -----
+  const score = safeInt(state.score);
 
-  // ✅ 상단 힌트에 카운트다운 표시
-  const countdown = formatTimeToMidnight();
-  if (todayHint) {
-    if (remainingXP <= 0) {
-      todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP} (상한 도달 · 리셋까지 ${countdown})`;
-    } else {
-      todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP} (리셋까지 ${countdown})`;
-    }
+  const bounds = getLevelBounds(score);
+  const low = bounds.low;
+  const next = bounds.next;
+  const nextLabel = bounds.nextLabel;
+
+  // 진행률(현재 레벨 구간에서 몇 % 왔는지)
+  const range = Math.max(1, next - low);
+  const progress = clamp((score - low) / range, 0, 1);
+  if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+
+  // 유지선(현재 레벨의 하한) 여유 + 다음 레벨까지 남은 점수
+  const buffer = score - low;
+  const toNext = Math.max(0, next - score);
+
+  // 텍스트(짧게)
+  // 예: "유지선 850 (여유 +47) · 다음: Diamond→(상한) +103"
+  const nextText = (next >= SCORE_MAX)
+    ? `상한(${SCORE_MAX})까지 +${toNext}`
+    : `${nextLabel}까지 +${toNext}`;
+
+  if (keepHint) {
+    // buffer가 너무 작으면 경고 느낌(문구만)
+    const warn = buffer <= 15 ? " · 위험" : "";
+    keepHint.innerText = `유지선 ${low} (여유 +${buffer}) · ${nextText}${warn}`;
   }
 }
 
