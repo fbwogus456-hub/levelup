@@ -1,118 +1,188 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>레벨업</title>
+
+  <!-- PWA (이미 있으면 중복돼도 큰 문제는 없지만, 가능하면 한 번만 유지) -->
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#ffffff" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-  <meta charset="UTF-8" />
-  <title>레벨업</title>
+
   <style>
-  body {
-    font-family: Arial, sans-serif;
-    max-width: 500px;
-    margin: 40px auto;
-    line-height: 1.6;
-  }
-
-  input, select, button {
-    width: 100%;
-    padding: 8px;
-    margin-top: 4px;
-  }
-
-  button {
-    margin-top: 16px;
-    font-weight: bold;
-  }
-
-  #result {
-    margin-top: 20px;
-    background: #f5f5f5;
-    padding: 16px;
-  }
-</style>
-
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 720px;
+      margin: 28px auto;
+      padding: 0 14px;
+      line-height: 1.5;
+    }
+    h1 { margin: 8px 0 2px; }
+    .muted { color: #666; margin-top: 0; }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 14px;
+      margin: 12px 0;
+      background: #fff;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > .col { flex: 1; min-width: 160px; }
+    label { font-size: 13px; color: #333; display:block; margin-bottom: 6px; }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    button {
+      font-weight: bold;
+      cursor: pointer;
+      background: #111;
+      color: #fff;
+      border-color: #111;
+    }
+    button:disabled {
+      background: #999;
+      border-color: #999;
+      cursor: not-allowed;
+    }
+    .tabs { display:flex; gap: 8px; }
+    .tab {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background: #f7f7f7;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .tab.active {
+      background: #111;
+      color: #fff;
+      border-color: #111;
+    }
+    .bigScore {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .pill {
+      display:inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background:#f2f2f2;
+      border:1px solid #ddd;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    .danger { color: #c00; }
+    .ok { color: #0a7; }
+    ul { padding-left: 18px; margin: 8px 0; }
+    canvas { width: 100%; max-width: 100%; border:1px solid #ddd; border-radius: 10px; }
+    hr { border:none; border-top:1px solid #ddd; margin: 18px 0; }
+  </style>
 </head>
+
 <body>
-
   <h1>레벨업</h1>
-  <p>오늘 가장 낭비한 화면을 직면한다.</p>
+  <p class="muted">가치는 “스펙”이 아니라 “행동”으로 오른다.</p>
 
-  <!-- 입력 1 -->
-  <label>오늘 가장 오래 본 화면</label><br />
-  <select id="screen">
-    <option value="">선택해라</option>
-    <option value="유튜브">유튜브</option>
-    <option value="쇼츠">쇼츠</option>
-    <option value="인스타">인스타</option>
-    <option value="커뮤니티">커뮤니티</option>
-    <option value="기타">기타</option>
-  </select>
-  <br /><br />
+  <!-- 상단 상태 -->
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <div class="pill">SCORE (0~1000)</div>
+        <div id="scoreText" class="bigScore">-</div>
+      </div>
+      <div class="col">
+        <div class="pill">레벨</div>
+        <div id="levelText" class="bigScore">-</div>
+      </div>
+      <div class="col">
+        <div class="pill">연속</div>
+        <div id="streakText" class="bigScore">-</div>
+      </div>
+    </div>
+    <p id="todayHint" class="muted" style="margin:10px 0 0;"></p>
+  </div>
 
-  <!-- 입력 2 -->
-  <label>사용 시간 (분)</label><br />
-  <input type="number" id="minutes" min="1" required />
-  <br /><br />
+  <!-- 오늘 입력 -->
+  <div class="card">
+    <h2 style="margin:0 0 10px;">오늘 입력</h2>
 
-  <!-- 입력 3 -->
-  <label>보기 시작한 이유</label><br />
-  <input type="radio" name="reason" value="할 일을 피하려고" /> 할 일을 피하려고<br />
-  <input type="radio" name="reason" value="습관적으로" /> 습관적으로<br />
-  <input type="radio" name="reason" value="피곤해서" /> 피곤해서<br />
-  <input type="radio" name="reason" value="심심해서" /> 심심해서<br />
-  <br />
+    <div class="tabs">
+      <button id="tabRun" class="tab active" type="button">운동(러닝)</button>
+      <button id="tabStudy" class="tab" type="button">공부(포모도로)</button>
+    </div>
 
-  <!-- 입력 4 -->
-  <label>그 시간에 원래 하려던 일</label><br />
-  <input type="text" id="intended" />
-  <br /><br />
+    <!-- 러닝 입력 -->
+    <div id="runForm" style="margin-top:12px;">
+      <div class="row">
+        <div class="col">
+          <label>거리 (km)</label>
+          <input id="runKm" type="number" step="0.1" placeholder="예: 3.0" />
+        </div>
+        <div class="col">
+          <label>시간 (분)</label>
+          <input id="runMin" type="number" step="1" placeholder="예: 20" />
+        </div>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">기본 XP = 10×km (+페이스 보너스). 하루 상한 있음.</p>
+    </div>
 
-  <button id="submitBtn">레벨업 결과 보기</button>
+    <!-- 공부 입력 -->
+    <div id="studyForm" style="margin-top:12px; display:none;">
+      <div class="row">
+        <div class="col">
+          <label>집중 세트 (1세트=25분)</label>
+          <input id="studySets" type="number" step="1" placeholder="예: 4" />
+        </div>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">기본 XP = 8×세트. 하루 상한 있음.</p>
+    </div>
+
+    <div style="margin-top:12px;">
+      <button id="applyBtn" type="button">XP 적용</button>
+    </div>
+
+    <div id="applyResult" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- 오늘 미션 -->
+  <div class="card">
+    <h2 style="margin:0 0 10px;">오늘의 미션</h2>
+    <div id="missionBox" class="muted">아직 미션이 없다. 활동을 입력하면 생성된다.</div>
+    <div style="margin-top:10px;">
+      <button id="missionDoneBtn" type="button" disabled>미션 완료 (+10 XP)</button>
+    </div>
+    <p id="missionStatus" class="muted" style="margin:8px 0 0;"></p>
+  </div>
+
+  <!-- 기록 -->
+  <div class="card">
+    <h2 style="margin:0 0 10px;">최근 기록 (7일)</h2>
+    <ul id="historyList"></ul>
+  </div>
+
+  <!-- 주간 리포트 -->
+  <div class="card">
+    <h2 style="margin:0 0 10px;">주간 리포트</h2>
+    <div id="weeklySummary" class="muted"></div>
+    <div style="margin-top:10px;">
+      <canvas id="weeklyChart" width="680" height="240"></canvas>
+    </div>
+    <p id="weeklyAI" class="muted" style="margin:10px 0 0;"></p>
+  </div>
 
   <hr />
 
-  <!-- 결과 -->
-  <div id="result">
-  결과가 여기에 표시된다.
-</div>
-<div id="completeSection" style="margin-top:12px; display:none;">
-  <label>
-    <input type="checkbox" id="completeCheck" />
-    내일 제약을 지켰다 (점수 회복)
-  </label>
-  <div id="completeInfo" style="margin-top:6px;"></div>
-</div>
-<hr />
-
-
-<div id="actionSection" style="margin-top:12px; display:none; background:#f5f5f5; padding:12px;">
-  <div><strong>내일 제약 실행</strong></div>
-  <div id="actionText" style="margin-top:6px;"></div>
-
-  <div style="margin-top:8px;">
-    <label>제약 시간(분):</label>
-    <input type="number" id="actionMinutes" value="120" min="10" max="600" />
+  <div class="card">
+    <button id="resetBtn" type="button" style="background:#fff; color:#111;">데이터 초기화(주의)</button>
+    <p class="muted" style="margin:8px 0 0;">개발 중 테스트용. 실제 서비스에서는 제거 권장.</p>
   </div>
-
-  <button id="startActionBtn" type="button" style="margin-top:10px;">제약 시작</button>
-  <button id="stopActionBtn" type="button" style="margin-top:10px; display:none;">중단</button>
-
-  <div id="timerText" style="margin-top:10px;"></div>
-</div>
-
-<hr />
-
-<h2>주간 리포트 (최근 7일)</h2>
-<div id="weeklyReport"></div>
-<canvas id="weeklyChart" width="500" height="220" style="margin-top:10px; border:1px solid #ddd;"></canvas>
-
-
-<h2>최근 기록</h2>
-<p id="avgScore"></p>
-<button id="clearHistoryBtn" type="button">기록 전체 삭제</button>
-
-<ul id="historyList"></ul>
 
   <script src="script.js"></script>
 </body>
