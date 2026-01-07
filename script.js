@@ -111,7 +111,57 @@ function renderHistory() {
     listEl.innerHTML = "<li>기록이 없다.</li>";
     return;
   }
+
+  listEl.innerHTML = items
+    .map((it, idx) => {
+      const shownScore = it.finalScore ?? it.score ?? it.baseScore ?? "-";
+      const title = `${it.date} · ${it.level || "-"} ${shownScore}점 · ${it.screen} ${it.minutes}분 · ${it.reason}`;
+      return `<li style="margin:8px 0;">
+        <button type="button" data-index="${idx}" class="historyItemBtn">${title}</button>
+      </li>`;
+    })
+    .join("");
+
+  document.querySelectorAll(".historyItemBtn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const index = Number(e.currentTarget.dataset.index);
+      const picked = loadHistory()[index];
+      if (!picked) return;
+
+      setSelectedRecord(picked.id);
+      showResultText(picked.resultText, {
+        score: picked.finalScore ?? picked.score ?? picked.baseScore,
+        level: picked.level
+      });
+    });
+  });
+
+  const avgEl = document.getElementById("avgScore");
+  if (avgEl) {
+    const scores = loadHistory()
+      .slice(0, HISTORY_SHOW)
+      .map(x => Number(x.finalScore ?? x.score ?? x.baseScore))
+      .filter(n => !Number.isNaN(n));
+
+    if (scores.length === 0) avgEl.innerText = "";
+    else {
+      const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+      avgEl.innerText = `최근 ${scores.length}회 평균 점수: ${avg}점`;
+    }
+  }
 }
+
+
+function isoToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(iso, delta) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
 
 function last7DaysISO() {
   const today = isoToday();
@@ -255,51 +305,6 @@ function drawWeeklyChart(canvas, days, dayScores, dayMinutes) {
 }
 
 
-  listEl.innerHTML = items
-    .map((it, idx) => {
-      const title = `${it.date} · ${it.level || "-"} ${it.score ?? "-"}점 · ${it.screen} ${it.minutes}분 · ${it.reason}`;
-      return `<li style="margin:8px 0;">
-        <button type="button" data-index="${idx}" class="historyItemBtn">${title}</button>
-      </li>`;
-    })
-    .join("");
-
-  // 클릭 이벤트 연결
-  document.querySelectorAll(".historyItemBtn").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      const index = Number(e.currentTarget.dataset.index);
-      const picked = loadHistory()[index];
-      if (!picked) return;
-
-      // 결과 다시 표시
-      setSelectedRecord(picked.id);
-
-      showResultText(picked.resultText, {
-        score: picked.finalScore ?? picked.score,
-        level: picked.level
-      });
-    });
-  });
-
-  const avgEl = document.getElementById("avgScore");
-  if (avgEl) {
-    const scores = loadHistory()
-      .slice(0, HISTORY_SHOW)
-      .map(x => Number(x.score))
-      .filter(n => !Number.isNaN(n));
-
-    if (scores.length === 0) {
-      avgEl.innerText = "";
-    } else {
-      const avg = Math.round(
-        scores.reduce((a, b) => a + b, 0) / scores.length
-      );
-      avgEl.innerText = `최근 ${scores.length}회 평균 점수: ${avg}점`;
-    }
-  }
-
-
-}
 
 function showResultText(text, meta) {
   const lines = String(text).split("\n").filter(l => l.trim() !== "");
