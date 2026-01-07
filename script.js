@@ -264,15 +264,61 @@ function renderHeader() {
   const streakText = document.getElementById("streakText");
   const todayHint = document.getElementById("todayHint");
 
-  scoreText.innerText = String(state.score);
-  levelText.innerText = state.level;
-  streakText.innerText = `${state.streak}일`;
+  if (scoreText) scoreText.innerText = String(state.score);
+  if (levelText) levelText.innerText = String(state.level);
+  if (streakText) streakText.innerText = `${state.streak}일`;
 
   const today = isoToday();
   const logs = loadLogs();
   const todayXP = sumTodayXP(logs, today);
-  todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP}`;
+
+  const remainingXP = Math.max(0, DAILY_XP_CAP - todayXP);
+
+  // ✅ 상단 힌트에 카운트다운 표시
+  const countdown = formatTimeToMidnight();
+  if (todayHint) {
+    if (remainingXP <= 0) {
+      todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP} (상한 도달 · 리셋까지 ${countdown})`;
+    } else {
+      todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP} (리셋까지 ${countdown})`;
+    }
+  }
 }
+
+let midnightTimer = null;
+
+function startMidnightCountdownTick() {
+  if (midnightTimer) return;
+
+  midnightTimer = setInterval(() => {
+    // 프로필 게이트가 떠 있으면 굳이 갱신하지 않음
+    const gate = document.getElementById("profileGate");
+    if (gate && gate.style.display === "block") return;
+
+    // 헤더 카운트다운 갱신
+    renderHeader();
+
+    // 상한 버튼 UX도 같이 갱신(이미 너가 추가한 함수)
+    if (typeof updateCapUX === "function") updateCapUX();
+  }, 1000);
+}
+
+function msUntilMidnight() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0); // 내일 00:00:00.000
+  return Math.max(0, next.getTime() - now.getTime());
+}
+
+function formatTimeToMidnight() {
+  const ms = msUntilMidnight();
+  const totalSec = Math.floor(ms / 1000);
+  const hh = Math.floor(totalSec / 3600);
+  const mm = Math.floor((totalSec % 3600) / 60);
+  const ss = totalSec % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
 
 function renderMission() {
   const state = loadState();
@@ -916,6 +962,9 @@ function init() {
 
   showProfileGate(false);
   renderAll();
+
+  // ✅ 카운트다운 1초 갱신 (헤더/버튼 UX만 가볍게 갱신)
+  startMidnightCountdownTick();
 })();
 
 // Service worker register (있어도 되고 없어도 됨)
