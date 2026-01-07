@@ -399,6 +399,7 @@ function setActiveTab(tab) {
 
 function renderHeader() {
   const state = loadState();
+
   const scoreText = document.getElementById("scoreText");
   const levelText = document.getElementById("levelText");
   const streakText = document.getElementById("streakText");
@@ -407,45 +408,44 @@ function renderHeader() {
   const keepHint = document.getElementById("keepHint");
   const fill = document.getElementById("levelProgressFill");
 
-  scoreText.innerText = String(state.score);
-  levelText.innerText = state.level;
-  streakText.innerText = `${state.streak}일`;
+  const score = safeInt(state.score);
 
+  if (scoreText) scoreText.innerText = String(score);
+  if (levelText) levelText.innerText = String(state.level || levelFromScore(score));
+  if (streakText) streakText.innerText = `${safeInt(state.streak)}일`;
+
+  // 오늘 XP 표시
   const today = isoToday();
   const logs = loadLogs();
   const todayXP = sumTodayXP(logs, today);
-  todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP}`;
+  if (todayHint) todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP}`;
 
-   // ----- 레벨 경계/진행률/유지선 안내 -----
-  const scoreNow = safeInt(state.score);
+  // ----- 레벨 경계/진행률 -----
+  // getLevelBounds(score)가 { low, nextLow, nextLabel } 를 준다고 가정
+  const b = getLevelBounds(score);
+  const low = safeInt(b.low);
+  const next = safeInt(b.nextLow);
+  const nextLabel = b.nextLabel ? String(b.nextLabel) : null;
 
-  // getLevelBounds는 score를 받아서:
-  // { low, high, nextLow, nextLabel } 을 리턴한다고 가정
-  const bounds = getLevelBounds(scoreNow);
-  const low = safeInt(bounds.low);
-  const high = safeInt(bounds.high);
-  const nextLow = safeInt(bounds.nextLow);
-  const nextLabel = bounds.nextLabel ? String(bounds.nextLabel) : null;
+  // 진행 바 (현재 레벨 구간에서 얼마나 왔는지)
+  const range = Math.max(1, next - low);
+  const progress = clamp((score - low) / range, 0, 1);
+  if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
 
-  // 진행률(현재 레벨 구간 low~high 에서 몇 % 왔는지)
-  const denom = Math.max(1, high - low);
-  const pct = clamp(((scoreNow - low) / denom) * 100, 0, 100);
-  if (fill) fill.style.width = `${Math.round(pct)}%`;
-
-  // 유지선(현재 레벨 하한) 여유 + 다음 레벨까지 남은 점수
-  const buffer = Math.max(0, scoreNow - low);
-  const toNext = Math.max(0, nextLow - scoreNow);
+  // 유지선 문구
+  const buffer = Math.max(0, score - low);
+  const toNext = Math.max(0, next - score);
 
   const nextText =
-    nextLow >= SCORE_MAX
-      ? `상한(${SCORE_MAX})까지 +${Math.max(0, SCORE_MAX - scoreNow)}`
+    next >= SCORE_MAX || !nextLabel
+      ? `상한(${SCORE_MAX})까지 +${Math.max(0, SCORE_MAX - score)}`
       : `${nextLabel}까지 +${toNext}`;
 
   if (keepHint) {
     const warn = buffer <= 15 ? " · 위험" : "";
     keepHint.innerText = `유지선 ${low} (여유 +${buffer}) · ${nextText}${warn}`;
   }
-
+}
 
 function startMidnightCountdownTick() {
   if (midnightTimer) return;
