@@ -311,16 +311,7 @@ function sumTodayXP(logs, dateISO) {
     .reduce((a, l) => a + safeInt(l.xp), 0);
 }
 
-function getLevelBounds(level) {
-  // 반환 형태를 UI에서 안전하게 쓰기 위해 고정:
-  // { lowerScore, nextScore, nextLabel }
-  // Diamond는 다음 레벨 대신 "상한(1000)"으로 표시
-  if (level === "Diamond") return { lowerScore: 850, nextScore: 1000, nextLabel: "상한" };
-  if (level === "Platinum") return { lowerScore: 700, nextScore: 850, nextLabel: "Diamond" };
-  if (level === "Gold") return { lowerScore: 500, nextScore: 700, nextLabel: "Platinum" };
-  if (level === "Silver") return { lowerScore: 300, nextScore: 500, nextLabel: "Gold" };
-  return { lowerScore: 0, nextScore: 300, nextLabel: "Silver" }; // Bronze
-}
+
 
 function compute7DayStats(logs, todayISO) {
   // 최근 7일(오늘 포함) XP 합/평균 + 0XP(미활동) 일수
