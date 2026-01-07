@@ -275,13 +275,14 @@ function sumTodayXP(logs, dateISO) {
 }
 
 function getLevelBounds(level) {
-  // 각 레벨의 하한선/다음 경계선(다음 레벨 진입선)
-  // Diamond의 다음 경계는 1000(상한)으로 둔다.
-  if (level === "Diamond") return { lower: 850, next: 1000 };
-  if (level === "Platinum") return { lower: 700, next: 850 };
-  if (level === "Gold") return { lower: 500, next: 700 };
-  if (level === "Silver") return { lower: 300, next: 500 };
-  return { lower: 0, next: 300 }; // Bronze
+  // 반환 형태를 UI에서 안전하게 쓰기 위해 고정:
+  // { lowerScore, nextScore, nextLabel }
+  // Diamond는 다음 레벨 대신 "상한(1000)"으로 표시
+  if (level === "Diamond") return { lowerScore: 850, nextScore: 1000, nextLabel: "상한" };
+  if (level === "Platinum") return { lowerScore: 700, nextScore: 850, nextLabel: "Diamond" };
+  if (level === "Gold") return { lowerScore: 500, nextScore: 700, nextLabel: "Platinum" };
+  if (level === "Silver") return { lowerScore: 300, nextScore: 500, nextLabel: "Gold" };
+  return { lowerScore: 0, nextScore: 300, nextLabel: "Silver" }; // Bronze
 }
 
 function compute7DayStats(logs, todayISO) {
@@ -389,8 +390,18 @@ function renderHeader() {
   const buffer = score - low;
   const toNext = Math.max(0, next - score);
 
-  // 텍스트(짧게)
-  // 예: "유지선 850 (여유 +47) · 다음: Diamond→(상한) +103"
+    // ===== 유지선/다음 경계 안내 (안전 버전) =====
+  const bounds = getLevelBounds(state.level); // { lowerScore, nextScore, nextLabel } 형태를 기대
+
+  const low = Number.isFinite(Number(bounds?.lowerScore)) ? Number(bounds.lowerScore) : 0;
+  const next = Number.isFinite(Number(bounds?.nextScore)) ? Number(bounds.nextScore) : SCORE_MAX;
+  const nextLabel = (bounds?.nextLabel != null) ? String(bounds.nextLabel) : "다음";
+
+  const scoreNow = Number.isFinite(Number(state.score)) ? Number(state.score) : 0;
+
+  const buffer = Math.max(0, scoreNow - low);
+  const toNext = Math.max(0, next - scoreNow);
+
   const nextText = (next >= SCORE_MAX)
     ? `상한(${SCORE_MAX})까지 +${toNext}`
     : `${nextLabel}까지 +${toNext}`;
@@ -400,7 +411,7 @@ function renderHeader() {
     const warn = buffer <= 15 ? " · 위험" : "";
     keepHint.innerText = `유지선 ${low} (여유 +${buffer}) · ${nextText}${warn}`;
   }
-}
+
 
 let midnightTimer = null;
 let _lastISOForReset = null;
