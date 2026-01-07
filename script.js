@@ -18,6 +18,9 @@ const UI_KEY = "levelup_ui_v2";
 const HISTORY_SHOW_DAYS = 7;
 const LOG_RETENTION_DAYS = 90;
 
+let midnightTimer = null;
+let _lastISOForReset = null;
+
 // ----- Utilities -----
 function isoToday() {
   const d = new Date();
@@ -194,6 +197,41 @@ function levelFromScore(score) {
   if (score >= 500) return "Gold";
   if (score >= 300) return "Silver";
   return "Bronze";
+}
+
+const LEVEL_BOUNDS = [
+  { label: "Bronze", low: 0,   high: 299 },
+  { label: "Silver", low: 300, high: 499 },
+  { label: "Gold", low: 500, high: 699 },
+  { label: "Platinum", low: 700, high: 849 },
+  { label: "Diamond", low: 850, high: 1000 }
+];
+
+function getLevelBounds(score) {
+  const s = clamp(safeInt(score), SCORE_MIN, SCORE_MAX);
+
+  for (let i = LEVEL_BOUNDS.length - 1; i >= 0; i--) {
+    const b = LEVEL_BOUNDS[i];
+    if (s >= b.low) {
+      const next = LEVEL_BOUNDS[i + 1] || null;
+      return {
+        label: b.label,
+        low: b.low,
+        high: b.high,
+        nextLow: next ? next.low : SCORE_MAX,
+        nextLabel: next ? next.label : null
+      };
+    }
+  }
+
+  // fallback (이론상 안 탐)
+  return {
+    label: "Bronze",
+    low: 0,
+    high: 299,
+    nextLow: 300,
+    nextLabel: "Silver"
+  };
 }
 
 function levelFloorFromLevel(level) {
@@ -373,48 +411,36 @@ function renderHeader() {
   const todayXP = sumTodayXP(logs, today);
   todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP}`;
 
-  // ----- 레벨 경계/진행률 계산 -----
-  const score = safeInt(state.score);
+   // ----- 레벨 경계/진행률/유지선 안내 -----
+  const scoreNow = safeInt(state.score);
 
-  const bounds = getLevelBounds(score);
-  const low = bounds.low;
-  const next = bounds.next;
-  const nextLabel = bounds.nextLabel;
+  // getLevelBounds는 score를 받아서:
+  // { low, high, nextLow, nextLabel } 을 리턴한다고 가정
+  const bounds = getLevelBounds(scoreNow);
+  const low = safeInt(bounds.low);
+  const high = safeInt(bounds.high);
+  const nextLow = safeInt(bounds.nextLow);
+  const nextLabel = bounds.nextLabel ? String(bounds.nextLabel) : null;
 
-  // 진행률(현재 레벨 구간에서 몇 % 왔는지)
-  const range = Math.max(1, next - low);
-  const progress = clamp((score - low) / range, 0, 1);
-  if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+  // 진행률(현재 레벨 구간 low~high 에서 몇 % 왔는지)
+  const denom = Math.max(1, high - low);
+  const pct = clamp(((scoreNow - low) / denom) * 100, 0, 100);
+  if (fill) fill.style.width = `${Math.round(pct)}%`;
 
-  // 유지선(현재 레벨의 하한) 여유 + 다음 레벨까지 남은 점수
-  const buffer = score - low;
-  const toNext = Math.max(0, next - score);
-
-    // ===== 유지선/다음 경계 안내 (안전 버전) =====
-  const bounds = getLevelBounds(state.level); // { lowerScore, nextScore, nextLabel } 형태를 기대
-
-  const low = Number.isFinite(Number(bounds?.lowerScore)) ? Number(bounds.lowerScore) : 0;
-  const next = Number.isFinite(Number(bounds?.nextScore)) ? Number(bounds.nextScore) : SCORE_MAX;
-  const nextLabel = (bounds?.nextLabel != null) ? String(bounds.nextLabel) : "다음";
-
-  const scoreNow = Number.isFinite(Number(state.score)) ? Number(state.score) : 0;
-
+  // 유지선(현재 레벨 하한) 여유 + 다음 레벨까지 남은 점수
   const buffer = Math.max(0, scoreNow - low);
-  const toNext = Math.max(0, next - scoreNow);
+  const toNext = Math.max(0, nextLow - scoreNow);
 
-  const nextText = (next >= SCORE_MAX)
-    ? `상한(${SCORE_MAX})까지 +${toNext}`
-    : `${nextLabel}까지 +${toNext}`;
+  const nextText =
+    nextLow >= SCORE_MAX
+      ? `상한(${SCORE_MAX})까지 +${Math.max(0, SCORE_MAX - scoreNow)}`
+      : `${nextLabel}까지 +${toNext}`;
 
   if (keepHint) {
-    // buffer가 너무 작으면 경고 느낌(문구만)
     const warn = buffer <= 15 ? " · 위험" : "";
     keepHint.innerText = `유지선 ${low} (여유 +${buffer}) · ${nextText}${warn}`;
   }
 
-
-let midnightTimer = null;
-let _lastISOForReset = null;
 
 function startMidnightCountdownTick() {
   if (midnightTimer) return;
