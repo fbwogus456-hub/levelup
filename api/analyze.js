@@ -88,6 +88,8 @@ export default async function handler(req, res) {
 오늘 활동 타입: ${activityType} (run=운동/러닝, study=공부)
 최근 7일 요약(최대 20개):
 ${recentText}
+오늘 목표 XP(추천): ${req.body.recommendedXP}  (남은치: ${req.body.remainingToday})
+다음 경계까지 필요한 XP: ${req.body.toNextBoundaryXP}  (현재 ${req.body.currentScore}, 레벨 ${req.body.currentLevel})
 
 요청:
 - missionText: 오늘 미션 1개(한 문장)
