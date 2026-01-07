@@ -210,24 +210,41 @@ const LEVEL_BOUNDS = [
 function getLevelBounds(score) {
   const s = clamp(safeInt(score), SCORE_MIN, SCORE_MAX);
 
-  for (let i = LEVEL_BOUNDS.length - 1; i >= 0; i--) {
-    const b = LEVEL_BOUNDS[i];
-    if (s >= b.low) {
-      const next = LEVEL_BOUNDS[i + 1] || null;
+  // 레벨 경계 정의 (반드시 오름차순)
+  const LEVELS = [
+    { label: "Bronze", low: 0, high: 299 },
+    { label: "Silver", low: 300, high: 499 },
+    { label: "Gold", low: 500, high: 699 },
+    { label: "Platinum", low: 700, high: 849 },
+    { label: "Diamond", low: 850, high: SCORE_MAX }
+  ];
+
+  for (let i = LEVELS.length - 1; i >= 0; i--) {
+    const cur = LEVELS[i];
+    if (s >= cur.low) {
+      const next = LEVELS[i + 1] || null;
 
       return {
-        label: b.label,
-        low: b.low,
-
-        // high가 누락되어도 안전하게 보정
-        high: Number.isFinite(Number(b.high)) ? b.high : (next ? next.low - 1 : SCORE_MAX),
-
-        // 마지막 레벨이면 "다음 경계"를 high+1로 잡아 진행률 계산이 자연스럽게 되게 함
-        nextLow: next ? next.low : (Number.isFinite(Number(b.high)) ? (b.high + 1) : (SCORE_MAX + 1)),
-        nextLabel: next ? next.label : "MAX"
+        label: cur.label,
+        low: cur.low,
+        high: cur.high,
+        nextLow: next ? next.low : SCORE_MAX,
+        nextLabel: next ? next.label : null,
+        isMax: !next
       };
     }
   }
+
+  // fallback (이론상 도달 불가)
+  return {
+    label: "Bronze",
+    low: 0,
+    high: 299,
+    nextLow: 300,
+    nextLabel: "Silver",
+    isMax: false
+  };
+}
 
   // fallback (이론상 안 탐)
   return {
@@ -427,19 +444,21 @@ function renderHeader() {
   const next = safeInt(b.nextLow);
   const nextLabel = b.nextLabel ? String(b.nextLabel) : null;
 
-  // 진행 바 (현재 레벨 구간에서 얼마나 왔는지)
-  const range = Math.max(1, next - low);
-  const progress = clamp((score - low) / range, 0, 1);
+  // 진행 바: Diamond면 항상 100%, 아니면 현재 구간 비율
+  let progress = 1;
+  if (!b.isMax) {
+    const range = Math.max(1, next - low);
+    progress = clamp((score - low) / range, 0, 1);
+  }
   if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
 
   // 유지선 문구
   const buffer = Math.max(0, score - low);
   const toNext = Math.max(0, next - score);
 
-  const nextText =
-    next >= SCORE_MAX || !nextLabel
-      ? `상한(${SCORE_MAX})까지 +${Math.max(0, SCORE_MAX - score)}`
-      : `${nextLabel}까지 +${toNext}`;
+  const nextText = b.isMax
+    ? `상한(${SCORE_MAX})까지 +${Math.max(0, SCORE_MAX - score)}`
+    : `${nextLabel}까지 +${toNext}`;
 
   if (keepHint) {
     const warn = buffer <= 15 ? " · 위험" : "";
