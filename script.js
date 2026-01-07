@@ -341,56 +341,67 @@ function renderWeeklyReport() {
   if (!summary || !canvas) return;
 
   const logs = loadLogs();
+
+  // ✅ 최근 7일 ISO 목록
   const days = lastNDaysISO(7);
 
-  // daily scoreAfter: use last log of that day, else null
+  // ✅ logs의 날짜 키가 혹시 달라도 대응 (dateISO가 없으면 date/iso 등도 검사)
+  const normalized = (Array.isArray(logs) ? logs : [])
+    .map(l => {
+      const dateISO = l?.dateISO || l?.date || l?.iso || null;
+      return { ...l, dateISO };
+    })
+    .filter(l => typeof l.dateISO === "string");
+
+  // ✅ day별로 묶기
   const byDay = new Map(days.map(d => [d, []]));
-  for (const l of logs) {
+  for (const l of normalized) {
     if (byDay.has(l.dateISO)) byDay.get(l.dateISO).push(l);
   }
 
+  // ✅ dayScores 만들기 + 주간 합계
   const dayScores = [];
   let totalXP = 0;
   let runXP = 0;
   let studyXP = 0;
-  let missionDone = 0;
-  let missionTotal = 0;
 
   for (const d of days) {
     const items = (byDay.get(d) || []).slice();
     items.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
+    // dayScores: 그날 마지막 기록의 scoreAfter
     if (items.length === 0) {
       dayScores.push(null);
     } else {
       const last = items[items.length - 1];
-      dayScores.push(safeInt(last.scoreAfter));
+      const s = safeInt(last.scoreAfter);
+      dayScores.push(Number.isFinite(s) ? s : null);
     }
 
     for (const it of items) {
-      totalXP += safeInt(it.xp);
-      if (it.type === "run") runXP += safeInt(it.xp);
-      if (it.type === "study") studyXP += safeInt(it.xp);
-
-      if (it.mission) {
-        missionTotal += 1;
-        if (it.mission.completed) missionDone += 1;
-      }
+      const xp = safeInt(it.xp);
+      totalXP += xp;
+      if (it.type === "run") runXP += xp;
+      if (it.type === "study") studyXP += xp;
     }
   }
 
-  const missionRate = missionTotal ? Math.round((missionDone / missionTotal) * 100) : 0;
+  // ✅ 요약 표시 (기록이 있어야 0이 아닌 값이 나와야 정상)
   summary.innerHTML = `
     <div class="pill">총 XP: ${totalXP}</div>
     <div class="pill">운동 XP: ${runXP}</div>
     <div class="pill">공부 XP: ${studyXP}</div>
-    <div class="pill">미션 성공률: ${missionRate}%</div>
+    <div class="pill">기록 수: ${normalized.length}</div>
   `;
 
-  console.log("weekly days/scores:", days, dayScores);
+  // ✅ 디버그 텍스트(문제 원인 즉시 확인용): 매칭이 안 되면 dayScores가 전부 null일 것
+  console.log("[weekly] days:", days);
+  console.log("[weekly] dayScores:", dayScores);
+  console.log("[weekly] normalized logs:", normalized);
+
   drawWeeklyChart(canvas, days, dayScores);
 
-  // weekly AI comment (없어도 차트는 반드시 그려지게)
+  // weekly AI comment (없어도 차트는 반드시 그려져야 함)
   if (weeklyAI) {
     if (!weeklyAI.dataset.text) weeklyAI.innerText = "";
   }
@@ -399,20 +410,33 @@ function renderWeeklyReport() {
 function drawWeeklyChart(canvas, days, dayScores) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width, h = canvas.height;
+
+  // ✅ 캔버스가 실제로 그려지는지 확인용: 배경 초기화
   ctx.clearRect(0, 0, w, h);
 
-  const padL = 38, padR = 12, padT = 12, padB = 32;
+  // 기본 폰트 지정(환경마다 기본값이 이상할 수 있어서 고정)
+  ctx.font = "12px sans-serif";
+  ctx.textBaseline = "alphabetic";
+
+  const padL = 38, padR = 12, padT = 16, padB = 32;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
-  // axes
+  // 축
   ctx.beginPath();
   ctx.moveTo(padL, padT);
   ctx.lineTo(padL, padT + plotH);
   ctx.lineTo(padL + plotW, padT + plotH);
   ctx.stroke();
 
-  // y range: 0..1000 fixed
+  // 기록이 없으면 안내 문구라도 출력
+  const hasAnyScore = dayScores.some(s => typeof s === "number" && Number.isFinite(s));
+  if (!hasAnyScore) {
+    ctx.fillText("최근 7일 기록이 없어 차트가 비어 있다.", padL, padT + 20);
+    return;
+  }
+
+  // y 범위 고정
   const minY = 0, maxY = 1000;
 
   const n = days.length;
@@ -423,20 +447,27 @@ function drawWeeklyChart(canvas, days, dayScores) {
     const x = padL + i * (barW + gap);
     const s = dayScores[i];
 
-    const label = days[i].slice(5); // MM-DD
+    // x축 라벨
+    const label = days[i].slice(5);
     ctx.fillText(label, x, padT + plotH + 20);
 
-    if (typeof s !== "number") continue;
+    if (typeof s !== "number" || !Number.isFinite(s)) continue;
 
+    // 막대 높이 계산
     const norm = (s - minY) / (maxY - minY);
     const bh = clamp(norm, 0, 1) * plotH;
-    const y = padT + plotH - bh;
 
-    ctx.fillRect(x, y, barW, bh);
+    // ✅ 너무 얇아서 안 보이는 케이스 방지(점수>0이면 최소 1px은 그리기)
+    const barH = (bh > 0 && bh < 1) ? 1 : bh;
+
+    const y = padT + plotH - barH;
+    ctx.fillRect(x, y, barW, barH);
+
+    // 점수 텍스트
     ctx.fillText(String(s), x, y - 4);
   }
 
-  ctx.fillText("주간 SCORE", padL, padT + 10);
+  ctx.fillText("주간 SCORE", padL, padT - 2);
 }
 
 // ----- Core actions -----
