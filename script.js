@@ -314,6 +314,8 @@ function startMidnightCountdownTick() {
   }, 1000);
 }
 
+let resetBannerTimer = null;
+
 function onMidnightResetUI() {
   // 1) 버튼 즉시 활성화
   const btn = document.getElementById("applyBtn");
@@ -322,21 +324,39 @@ function onMidnightResetUI() {
     btn.innerText = "XP 적용";
   }
 
-  // 2) 배너(=applyResult) 출력
+  // 2) resetHint 숨김
+  const resetHint = document.getElementById("resetHint");
+  if (resetHint) {
+    resetHint.style.display = "none";
+    resetHint.innerText = "";
+  }
+
+  // 3) 배너 표시 (applyResult)
   const applyResult = document.getElementById("applyResult");
   if (applyResult) {
     applyResult.innerHTML = `
-      <div class="ok"><strong>XP 리셋됨.</strong> 오늘 다시 시작해라.</div>
+      <div class="ok" style="font-size:18px; font-weight:800;">
+        XP 리셋됨
+      </div>
       <div class="muted" style="margin-top:6px;">
         오늘 상한: ${DAILY_XP_CAP} XP
       </div>
     `;
+
+    // ✅ 5초 후 배너 자동 제거
+    if (resetBannerTimer) clearTimeout(resetBannerTimer);
+    resetBannerTimer = setTimeout(() => {
+      // 사용자가 그 사이에 다른 결과를 띄웠을 수 있으니 안전하게 "리셋됨" 배너일 때만 지움
+      const html = applyResult.innerText || "";
+      if (html.includes("XP 리셋됨")) {
+        applyResult.innerHTML = "";
+      }
+    }, 5000);
   }
 
-  // 3) 화면 전체 갱신(오늘 XP 0으로 보이게, 주간도 새 날짜 반영)
+  // 4) 전체 갱신(오늘 XP 0, 주간 반영)
   renderAll();
 }
-
 
 function msUntilMidnight() {
   const now = new Date();
@@ -853,40 +873,46 @@ logs.push({
 
 function updateCapUX() {
   const btn = document.getElementById("applyBtn");
-  const hint = document.getElementById("todayHint");
   const applyResult = document.getElementById("applyResult");
+  const resetHint = document.getElementById("resetHint");
 
   const today = isoToday();
   const logs = loadLogs();
   const todayXP = sumTodayXP(logs, today);
   const remainingXP = Math.max(0, DAILY_XP_CAP - todayXP);
 
-  // 버튼/힌트 UX
+  const capped = remainingXP <= 0;
+
+  // 버튼 UX
   if (btn) {
-    btn.disabled = remainingXP <= 0;
-    btn.innerText = remainingXP <= 0 ? "오늘은 상한 도달" : "XP 적용";
+    btn.disabled = capped;
+    btn.innerText = capped ? "오늘은 상한 도달" : "XP 적용";
   }
 
-  // 상단 힌트는 renderHeader가 담당(중복 갱신 방지)
-  // hint는 여기서 굳이 건드리지 않아도 됨
-
-  // ✅ 상한 도달 시 applyResult에 큰 카운트다운 표시
-  if (applyResult) {
-    if (remainingXP <= 0) {
-      const cd = formatTimeToMidnight();
-      applyResult.innerHTML = `
-        <div class="danger"><strong>오늘 XP 상한( ${DAILY_XP_CAP} )에 도달했다.</strong></div>
-        <div style="margin-top:6px; font-size:22px; font-weight:800;">
-          리셋까지 ${cd}
-        </div>
-        <div class="muted" style="margin-top:6px;">
-          00:00에 자동으로 다시 활성화된다.
-        </div>
-      `;
+  // ✅ applyBtn 아래 회색 문구(고정)
+  if (resetHint) {
+    if (capped) {
+      resetHint.style.display = "block";
+      resetHint.innerText = `리셋까지 ${formatTimeToMidnight()} (내일 00:00)`;
+    } else {
+      resetHint.style.display = "none";
+      resetHint.innerText = "";
     }
   }
-}
 
+  // ✅ 상한 도달 시 applyResult 큰 카운트다운 표시
+  if (applyResult && capped) {
+    applyResult.innerHTML = `
+      <div class="danger"><strong>오늘 XP 상한( ${DAILY_XP_CAP} )에 도달했다.</strong></div>
+      <div style="margin-top:6px; font-size:22px; font-weight:800;">
+        리셋까지 ${formatTimeToMidnight()}
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        00:00에 자동으로 다시 활성화된다.
+      </div>
+    `;
+  }
+}
 
 // ----- Render all -----
 function renderAll() {
