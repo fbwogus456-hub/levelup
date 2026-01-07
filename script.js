@@ -10,6 +10,7 @@ const SCORE_MIN = 0;
 const SCORE_MAX = 1000;
 const DAILY_XP_CAP = 120;
 const MISSION_BONUS_XP = 10;
+const DAILY_SCORE_DECAY = 8; // 매일 00:00에 SCORE -8 (유지 최소 XP 계산용)
 const RESET_WARN_MINUTES = 10;
 const UI_KEY = "levelup_ui_v2";
 
@@ -195,6 +196,30 @@ function levelFromScore(score) {
   return "Bronze";
 }
 
+function levelFloorFromLevel(level) {
+  if (level === "Diamond") return 850;
+  if (level === "Platinum") return 700;
+  if (level === "Gold") return 500;
+  if (level === "Silver") return 300;
+  return 0; // Bronze
+}
+
+// "유지 최소 XP": 오늘 XP를 벌고 -> 00:00 감가(-DAILY_SCORE_DECAY) 후에도
+// 현재 레벨 바닥(예: Gold=500)을 유지하기 위한 최소 XP
+function minKeepXPForToday(currentScore, currentLevel) {
+  const floor = levelFloorFromLevel(currentLevel);
+
+  // (currentScore + xp - decay) >= floor  를 만족하는 최소 xp
+  const need = floor - (safeInt(currentScore) - DAILY_SCORE_DECAY);
+
+  // 경계에 "딱 걸치기"보다 1점 위가 안전(표시만)
+  const xp = Math.max(0, need);
+
+  // XP는 일일 상한을 넘길 수 없으니 상한 내로 클램프
+  return clamp(Math.ceil(xp), 0, DAILY_XP_CAP);
+}
+
+
 // ----- XP calculations -----
 function calcRunXP(km, minutes) {
   const k = safeFloat(km);
@@ -341,20 +366,30 @@ async function showPostResetGoalAndNudge() {
 
   const logs = loadLogs();
   const rec = recommendTodayXPGoal(logs);
+
   const goal = rec.goalXP;
   const yXP = rec.yesterdayXP;
+  const keepMin = rec.keepMinXP;
 
-  // 1) 목표 XP 추천 배너
+  const deltaToGoal = Math.max(0, goal - yXP);
+  const deltaToKeep = Math.max(0, keepMin - yXP);
+
+  // 1) 목표 XP 추천 배너 (리셋 직후)
   if (applyResult) {
     applyResult.innerHTML = `
       <div class="ok" style="font-size:18px; font-weight:800;">
         XP 리셋됨
       </div>
       <div class="muted" style="margin-top:6px;">
-        오늘 목표 XP 추천: <strong>${goal}</strong> / ${DAILY_XP_CAP}
+        오늘 목표 XP: <strong>${goal}</strong> / ${DAILY_XP_CAP}
+        <span style="opacity:0.85;">(최근7일 평균 ${rec.avg7}, 실패일 ${rec.failDays}일 반영)</span>
       </div>
       <div class="muted" style="margin-top:6px;">
-        어제 XP: ${yXP} → 오늘은 최소 <strong>+${Math.max(0, goal - yXP)}</strong>만 더 해라.
+        레벨 유지 최소 XP: <strong>${keepMin}</strong>
+        <span style="opacity:0.85;">(00:00 감가 -${DAILY_SCORE_DECAY} 반영)</span>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        어제 ${yXP}XP → 목표까지 <strong>+${deltaToGoal}</strong> / 유지까지 <strong>+${deltaToKeep}</strong>
       </div>
     `;
   }
@@ -374,21 +409,39 @@ async function showPostResetGoalAndNudge() {
       yesterdayISO: yesterdayISO(),
       yesterdayXP: yXP,
       todayGoalXP: goal,
+      minKeepXP: keepMin,
+      deltaToGoalXP: deltaToGoal,
+      deltaToKeepXP: deltaToKeep,
       level: state.level,
       score: state.score
     });
 
     const text = String(ai.nudgeText || "").trim();
     if (nudgeEl) {
-      nudgeEl.innerText = text ? `AI: ${text}` : `AI: 어제보다 +${Math.max(0, goal - yXP)}만 더 해도 된다.`;
+      nudgeEl.innerText = text
+        ? `AI: ${text}`
+        : `AI: 유지하려면 최소 +${deltaToKeep}XP. 목표는 +${deltaToGoal}XP. 지금 10분만 해라.`;
     }
   } catch (e) {
-    // 로컬 대체 문구
-    const delta = Math.max(0, goal - yXP);
     if (nudgeEl) {
-      nudgeEl.innerText = `AI: 어제보다 +${delta} XP만 더 해도 된다. 못하면 내려간다.`;
+      nudgeEl.innerText = `AI: 유지 +${deltaToKeep}XP, 목표 +${deltaToGoal}XP. 지금 10분만 해라.`;
     }
   }
+}
+
+function applyDailyDecayAtMidnight() {
+  const state = loadState();
+
+  const before = safeInt(state.score);
+  const after = clamp(before - DAILY_SCORE_DECAY, SCORE_MIN, SCORE_MAX);
+
+  state.score = after;
+  state.level = levelFromScore(after);
+
+  // streak는 활동 기반이라 여기서는 건드리지 않음 (원하면 0으로 리셋 가능)
+  saveState(state);
+
+  return { before, after, decay: DAILY_SCORE_DECAY };
 }
 
 
@@ -436,6 +489,7 @@ function onMidnightResetUI() {
   }
 
   // 4) 전체 갱신(오늘 XP 0, 주간 반영)
+  applyDailyDecayAtMidnight();
   renderAll();
   showPostResetGoalAndNudge();
 }
@@ -583,15 +637,57 @@ function sumXPByDate(logs, dateISO) {
 }
 
 function recommendTodayXPGoal(logs) {
+  const today = isoToday();
   const y = yesterdayISO();
-  const yXP = sumXPByDate(logs, y);
 
-  // 추천 로직(단순하지만 제품에 충분히 쓸만함)
-  // - 어제보다 +10을 기본 목표로
-  // - 최소 40, 최대 DAILY_XP_CAP
-  const goal = clamp(yXP + 10, 40, DAILY_XP_CAP);
+  // 최근 7일 날짜
+  const days = lastNDaysISO(7);
 
-  return { yesterdayXP: yXP, goalXP: goal };
+  // 일별 XP 합산
+  const xpByDay = new Map(days.map(d => [d, 0]));
+  for (const l of logs) {
+    if (l && xpByDay.has(l.dateISO)) {
+      xpByDay.set(l.dateISO, xpByDay.get(l.dateISO) + safeInt(l.xp));
+    }
+  }
+
+  // 패턴 지표
+  const dayXPs = days.map(d => xpByDay.get(d) || 0);
+  const total7 = dayXPs.reduce((a, b) => a + b, 0);
+  const avg7 = Math.round(total7 / 7);
+
+  const failDays = dayXPs.filter(x => x === 0).length; // 최근 7일 중 0 XP 일수
+  const yesterdayXP = xpByDay.get(y) || 0;
+
+  // 상태 기반 유지 최소 XP
+  const state = loadState();
+  const keepMin = minKeepXPForToday(state.score, state.level);
+
+  // 목표 XP(패턴 기반):
+  // - 기본은 최근7일 평균
+  // - failDays가 많을수록 "너무 높게" 잡지 않고, 대신 최소 목표를 확실히 만든다
+  //   (실패가 많으면 목표를 과하게 올리면 더 실패함)
+  //
+  // 전략:
+  // - baseline = avg7
+  // - failDays 0~7 에 따라 baseline을 0.9~0.6배로 "조금 낮춤"
+  // - 대신 keepMin과 40(최소 행동) 중 큰 값은 반드시 만족
+  const soften = clamp(0.9 - failDays * 0.05, 0.6, 0.9); // failDays 0이면 0.9, 6이면 0.6
+  const baseline = Math.round(avg7 * soften);
+
+  const goalXP = clamp(
+    Math.max(40, keepMin, baseline),
+    0,
+    DAILY_XP_CAP
+  );
+
+  return {
+    yesterdayXP,
+    avg7,
+    failDays,
+    keepMinXP: keepMin,
+    goalXP
+  };
 }
 
 
