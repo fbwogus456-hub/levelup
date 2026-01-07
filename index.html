@@ -87,6 +87,55 @@
 </head>
 
 <body>
+  <section id="profileGate" style="display:none; border:1px solid #e5e5e5; border-radius:12px; padding:16px; margin-bottom:16px;">
+    <h2 style="margin:0 0 8px 0;">프로필 설정 (처음 1회)</h2>
+    <p style="margin:0 0 12px 0; color:#555;">초기 SCORE는 프로필 기반으로 산정된다. 이후에는 활동으로만 오른다.</p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div>
+        <label>나이</label>
+        <input id="pAge" type="number" min="10" max="99" placeholder="예: 21" />
+      </div>
+      <div>
+        <label>수면(평균/시간)</label>
+        <input id="pSleep" type="number" min="0" max="12" step="0.5" placeholder="예: 7" />
+      </div>
+
+      <div>
+        <label>키(cm)</label>
+        <input id="pHeight" type="number" min="120" max="220" placeholder="예: 175" />
+      </div>
+      <div>
+        <label>몸무게(kg)</label>
+        <input id="pWeight" type="number" min="30" max="200" step="0.1" placeholder="예: 68.5" />
+      </div>
+
+      <div>
+        <label>운동 빈도(주)</label>
+        <select id="pExercise">
+          <option value="0">0회</option>
+          <option value="1">1~2회</option>
+          <option value="3">3~4회</option>
+          <option value="5">5회 이상</option>
+        </select>
+      </div>
+      <div>
+        <label>공부 시간(일)</label>
+        <select id="pStudy">
+          <option value="0">0시간</option>
+          <option value="1">1~2시간</option>
+          <option value="3">3~5시간</option>
+          <option value="6">6시간 이상</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+      <button id="saveProfileBtn" type="button">프로필 저장하고 시작</button>
+      <span id="profileHint" style="color:#c00;"></span>
+    </div>
+  </section>
+
   <h1>레벨업</h1>
   <p class="muted">가치는 “스펙”이 아니라 “행동”으로 오른다.</p>
 
