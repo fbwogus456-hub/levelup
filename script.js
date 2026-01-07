@@ -319,11 +319,18 @@ function renderHistory() {
   list.innerHTML = filtered
     .slice(0, 30)
     .map(l => {
-      const typeLabel = l.type === "run" ? "러닝" : "공부";
+      const typeLabel =
+        l.type === "run" ? "러닝" :
+        l.type === "study" ? "공부" :
+        "미션";
+
       const inputLabel =
         l.type === "run"
           ? `${l.input.km}km · ${l.input.minutes}분`
-          : `${l.input.sets}세트`;
+          : l.type === "study"
+            ? `${l.input.sets}세트`
+            : `보너스`;
+
 
       const missionMark = l.mission?.completed ? " (미션✔)" : "";
       return `<li>
@@ -718,17 +725,17 @@ function completeMission() {
 
 
   // Add a log entry for mission bonus (so history reflects it)
-  logs.push({
-    id: newId(),
-    createdAt: Date.now(),
-    dateISO: today,
-    type: "study", // type doesn't matter here; keep simple
-    input: { mission: true },
-    xp: bonus,
-    scoreBefore: before,
-    scoreAfter: after,
-    mission: { text: state.todayMission.text, completed: true, bonusXp: state.todayMission.bonusXp }
-  });
+logs.push({
+  id: newId(),
+  createdAt: Date.now(),
+  dateISO: today,
+  type: "mission",
+  input: { bonus: true },
+  xp: bonus,
+  scoreBefore: before,
+  scoreAfter: after,
+  mission: { text: state.todayMission.text, completed: true, bonusXp: state.todayMission.bonusXp }
+});
 
   saveState(state);
   saveLogs(logs);
