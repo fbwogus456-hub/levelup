@@ -1,634 +1,615 @@
-document.getElementById("submitBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("submitBtn");
+// ===== 레벨업 2.0 MVP (V2) =====
 
-  try {
-    const screen = document.getElementById("screen").value;
-    const minutes = document.getElementById("minutes").value;
-    const intended = document.getElementById("intended").value;
+// Storage keys (V2로 분리해서 기존 1.0 데이터와 충돌 방지)
+const STATE_KEY = "levelup_state_v2";
+const LOGS_KEY = "levelup_logs_v2";
 
-    const reasonEl = document.querySelector('input[name="reason"]:checked');
-    if (!reasonEl) {
-      alert("보기 시작한 이유를 선택해라.");
-      return;
-    }
-    const reason = reasonEl.value;
+// Config
+const SCORE_MIN = 0;
+const SCORE_MAX = 1000;
+const DAILY_XP_CAP = 120;
+const MISSION_BONUS_XP = 10;
 
-    if (!minutes || !intended) {
-      alert("모든 입력을 채워라.");
-      return;
-    }
+const HISTORY_SHOW_DAYS = 7;
+const LOG_RETENTION_DAYS = 90;
 
-    // 연타 방지 시작 (검증 통과 후)
-    btn.disabled = true;
-    btn.innerText = "분석 중...";
-
-    const text = await getAnalysis({ screen, minutes, reason, intended });
-
-    const score = calcScore(minutes, reason);
-    const level = calcLevel(score);
-
-    showResultText(text, { score, level });
-
-    addHistory({
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-      dateISO: new Date().toISOString().slice(0, 10),
-      date: new Date().toLocaleDateString("ko-KR"),
-      screen,
-      minutes,
-      reason,
-      intended,
-      baseScore: score,
-      completed: false,
-      resultText: text
-    });
-
-  } catch (e) {
-    document.getElementById("result").innerText =
-      "에러 발생: " + (e.message || e);
-  } finally {
-    btn.disabled = false;
-    btn.innerText = "레벨업 결과 보기";
-  }
-});
-
-
-async function getAnalysis(data) {
-  const response = await fetch("/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data)
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    const detail = result.detail ? `\n\nDETAIL:\n${result.detail}` : "";
-    const status = result.status ? `\nSTATUS: ${result.status}` : "";
-    throw new Error((result.error || "Request failed") + status + detail);
-  }
-
-  return result.result;
-}
-
-const STORAGE_KEY = "levelup_history_v1";
-const HISTORY_LIMIT = 10;     // 저장은 10개까지
-const HISTORY_SHOW = 7;       // 화면에는 7개만 보여줌
-
-function loadHistory() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(items) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
-function addHistory(item) {
-  const items = loadHistory();
-  items.unshift(item);
-
-  const trimmed = items.slice(0, HISTORY_LIMIT);
-  const recomputed = recomputeProgress(trimmed);
-
-  saveHistory(recomputed);
-  renderHistory();
-  renderWeeklyReport();
-
-  // 최신 기록을 선택 상태로
-  setSelectedRecord(recomputed[0]?.id);
-}
-
-function renderHistory() {
-  const listEl = document.getElementById("historyList");
-  if (!listEl) return;
-
-  const items = loadHistory().slice(0, HISTORY_SHOW);
-
-  if (items.length === 0) {
-    listEl.innerHTML = "<li>기록이 없다.</li>";
-    return;
-  }
-
-  listEl.innerHTML = items
-    .map((it, idx) => {
-      const shownScore = it.finalScore ?? it.score ?? it.baseScore ?? "-";
-      const title = `${it.date} · ${it.level || "-"} ${shownScore}점 · ${it.screen} ${it.minutes}분 · ${it.reason}`;
-      return `<li style="margin:8px 0;">
-        <button type="button" data-index="${idx}" class="historyItemBtn">${title}</button>
-      </li>`;
-    })
-    .join("");
-
-  document.querySelectorAll(".historyItemBtn").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      const index = Number(e.currentTarget.dataset.index);
-      const picked = loadHistory()[index];
-      if (!picked) return;
-
-      setSelectedRecord(picked.id);
-      showResultText(picked.resultText, {
-        score: picked.finalScore ?? picked.score ?? picked.baseScore,
-        level: picked.level
-      });
-    });
-  });
-
-  const avgEl = document.getElementById("avgScore");
-  if (avgEl) {
-    const scores = loadHistory()
-      .slice(0, HISTORY_SHOW)
-      .map(x => Number(x.finalScore ?? x.score ?? x.baseScore))
-      .filter(n => !Number.isNaN(n));
-
-    if (scores.length === 0) avgEl.innerText = "";
-    else {
-      const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-      avgEl.innerText = `최근 ${scores.length}회 평균 점수: ${avg}점`;
-    }
-  }
-}
-
-
+// ----- Utilities -----
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
 }
-
 function addDays(iso, delta) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + delta);
   return d.toISOString().slice(0, 10);
 }
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+function safeInt(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function safeFloat(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function daysBetween(aISO, bISO) {
+  const a = new Date(aISO + "T00:00:00");
+  const b = new Date(bISO + "T00:00:00");
+  return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+function newId() {
+  return crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
+}
 
+// ----- State / Logs -----
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STATE_KEY));
+    if (s && typeof s.score === "number") return s;
+  } catch {}
+  // default
+  return {
+    score: 300,
+    level: levelFromScore(300),
+    streak: 0,
+    lastActiveISO: null,
+    todayMission: null // { dateISO, text, completed, bonusXp }
+  };
+}
 
-function last7DaysISO() {
+function saveState(state) {
+  localStorage.setItem(STATE_KEY, JSON.stringify(state));
+}
+
+function loadLogs() {
+  try {
+    return JSON.parse(localStorage.getItem(LOGS_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLogs(logs) {
+  localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
+}
+
+function pruneLogs(logs) {
   const today = isoToday();
-  const days = [];
-  for (let i = 6; i >= 0; i--) days.push(addDays(today, -i));
-  return days;
+  return logs.filter(l => l?.dateISO && daysBetween(l.dateISO, today) <= LOG_RETENTION_DAYS);
 }
 
-function groupByISO(history, days) {
-  const map = new Map(days.map(d => [d, []]));
-  for (const h of history) {
-    if (!h.dateISO) continue;
-    if (map.has(h.dateISO)) map.get(h.dateISO).push(h);
+// ----- Level mapping -----
+function levelFromScore(score) {
+  if (score >= 850) return "Diamond";
+  if (score >= 700) return "Platinum";
+  if (score >= 500) return "Gold";
+  if (score >= 300) return "Silver";
+  return "Bronze";
+}
+
+// ----- XP calculations -----
+function calcRunXP(km, minutes) {
+  const k = safeFloat(km);
+  const m = safeFloat(minutes);
+  if (k <= 0 || m <= 0) return 0;
+
+  let xp = Math.round(10 * k);
+
+  // pace bonus (minutes per km)
+  const pace = m / k; // min/km
+  let bonus = 0;
+  if (pace <= 5.5) bonus = 10;
+  else if (pace <= 6.5) bonus = 5;
+
+  xp += bonus;
+
+  // cap for run
+  xp = Math.min(xp, 80);
+  return Math.max(0, xp);
+}
+
+function calcStudyXP(sets) {
+  const s = safeInt(sets);
+  if (s <= 0) return 0;
+  let xp = s * 8;
+  xp = Math.min(xp, 80);
+  return Math.max(0, xp);
+}
+
+function calcStreakBonus(streak) {
+  if (streak >= 7) return 8;
+  if (streak >= 3) return 5;
+  if (streak >= 2) return 3;
+  return 0;
+}
+
+function sumTodayXP(logs, dateISO) {
+  return logs
+    .filter(l => l.dateISO === dateISO)
+    .reduce((a, l) => a + safeInt(l.xp), 0);
+}
+
+// ----- AI mission (serverless) -----
+async function fetchMission(context) {
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(context)
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data?.error ? String(data.error) : "AI request failed";
+    throw new Error(detail);
   }
-  return map;
+  return data; // { missionText, weeklyComment }
 }
 
-function sum(arr) {
-  return arr.reduce((a, b) => a + b, 0);
-}
+// ----- UI helpers -----
+function setActiveTab(tab) {
+  const tabRun = document.getElementById("tabRun");
+  const tabStudy = document.getElementById("tabStudy");
+  const runForm = document.getElementById("runForm");
+  const studyForm = document.getElementById("studyForm");
 
-function mostCommon(arr) {
-  const m = new Map();
-  for (const x of arr) m.set(x, (m.get(x) || 0) + 1);
-  let best = null, bestN = -1;
-  for (const [k, n] of m.entries()) {
-    if (n > bestN) { best = k; bestN = n; }
+  if (tab === "run") {
+    tabRun.classList.add("active");
+    tabStudy.classList.remove("active");
+    runForm.style.display = "block";
+    studyForm.style.display = "none";
+  } else {
+    tabRun.classList.remove("active");
+    tabStudy.classList.add("active");
+    runForm.style.display = "none";
+    studyForm.style.display = "block";
   }
-  return best;
+}
+
+function renderHeader() {
+  const state = loadState();
+  const scoreText = document.getElementById("scoreText");
+  const levelText = document.getElementById("levelText");
+  const streakText = document.getElementById("streakText");
+  const todayHint = document.getElementById("todayHint");
+
+  scoreText.innerText = String(state.score);
+  levelText.innerText = state.level;
+  streakText.innerText = `${state.streak}일`;
+
+  const today = isoToday();
+  const logs = loadLogs();
+  const todayXP = sumTodayXP(logs, today);
+  todayHint.innerText = `오늘 획득 XP: ${todayXP} / ${DAILY_XP_CAP}`;
+}
+
+function renderMission() {
+  const state = loadState();
+  const box = document.getElementById("missionBox");
+  const btn = document.getElementById("missionDoneBtn");
+  const status = document.getElementById("missionStatus");
+
+  const today = isoToday();
+  const m = state.todayMission;
+
+  if (!m || m.dateISO !== today) {
+    box.innerText = "아직 미션이 없다. 활동을 입력하면 생성된다.";
+    btn.disabled = true;
+    status.innerText = "";
+    return;
+  }
+
+  box.innerText = `오늘 미션: ${m.text}`;
+  if (m.completed) {
+    btn.disabled = true;
+    status.innerText = `완료됨 (+${m.bonusXp} XP 반영 완료)`;
+  } else {
+    btn.disabled = false;
+    status.innerText = `미완료 (완료 체크 시 +${m.bonusXp} XP)`;
+  }
+}
+
+function renderHistory() {
+  const list = document.getElementById("historyList");
+  if (!list) return;
+
+  const logs = loadLogs();
+  const days = lastNDaysISO(HISTORY_SHOW_DAYS);
+  const filtered = logs.filter(l => days.includes(l.dateISO));
+
+  if (filtered.length === 0) {
+    list.innerHTML = "<li>기록이 없다.</li>";
+    return;
+  }
+
+  // recent first
+  filtered.sort((a, b) => (b.dateISO || "").localeCompare(a.dateISO || ""));
+
+  list.innerHTML = filtered
+    .slice(0, 30)
+    .map(l => {
+      const typeLabel = l.type === "run" ? "러닝" : "공부";
+      const inputLabel =
+        l.type === "run"
+          ? `${l.input.km}km · ${l.input.minutes}분`
+          : `${l.input.sets}세트`;
+
+      const missionMark = l.mission?.completed ? " (미션✔)" : "";
+      return `<li>
+        <strong>${l.dateISO}</strong> · ${typeLabel} · ${inputLabel} · XP ${l.xp} · SCORE ${l.scoreBefore}→${l.scoreAfter}${missionMark}
+      </li>`;
+    })
+    .join("");
+}
+
+function lastNDaysISO(n) {
+  const today = isoToday();
+  const arr = [];
+  for (let i = n - 1; i >= 0; i--) arr.push(addDays(today, -i));
+  return arr;
 }
 
 function renderWeeklyReport() {
-  const container = document.getElementById("weeklyReport");
+  const summary = document.getElementById("weeklySummary");
   const canvas = document.getElementById("weeklyChart");
-  if (!container || !canvas) return;
+  const weeklyAI = document.getElementById("weeklyAI");
+  if (!summary || !canvas) return;
 
-  const history = loadHistory();
-  const days = last7DaysISO();
-  const byDay = groupByISO(history, days);
+  const logs = loadLogs();
+  const days = lastNDaysISO(7);
 
-  // 일별 대표 점수(그날 마지막 기록의 finalScore) + 총 사용시간
+  // daily scoreAfter: use last log of that day, else null
+  const byDay = new Map(days.map(d => [d, []]));
+  for (const l of logs) {
+    if (byDay.has(l.dateISO)) byDay.get(l.dateISO).push(l);
+  }
+
   const dayScores = [];
-  const dayMinutes = [];
+  let totalXP = 0;
+  let runXP = 0;
+  let studyXP = 0;
+  let missionDone = 0;
+  let missionTotal = 0;
 
-  let allItems = [];
   for (const d of days) {
-    const items = byDay.get(d) || [];
-    allItems = allItems.concat(items);
+    const items = (byDay.get(d) || []).slice();
+    items.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
     if (items.length === 0) {
       dayScores.push(null);
-      dayMinutes.push(0);
-      continue;
+    } else {
+      const last = items[items.length - 1];
+      dayScores.push(safeInt(last.scoreAfter));
     }
 
-    // 기록은 최신이 앞(unshift)일 가능성이 높지만, 안전하게 dateISO 동일하므로 그냥 첫 번째를 "최신"으로 취급
-    // 만약 동일 날짜 다건이면 최신 1건 기준
-    const latest = items[0];
-    const score = Number(latest.finalScore ?? latest.score ?? latest.baseScore);
-    dayScores.push(Number.isFinite(score) ? score : null);
+    for (const it of items) {
+      totalXP += safeInt(it.xp);
+      if (it.type === "run") runXP += safeInt(it.xp);
+      if (it.type === "study") studyXP += safeInt(it.xp);
 
-    const minutesSum = sum(items.map(x => Number(x.minutes) || 0));
-    dayMinutes.push(minutesSum);
+      if (it.mission) {
+        missionTotal += 1;
+        if (it.mission.completed) missionDone += 1;
+      }
+    }
   }
 
-  // 주간 요약
-  const scoresForAvg = dayScores.filter(x => typeof x === "number");
-  const avgScore = scoresForAvg.length ? Math.round(sum(scoresForAvg) / scoresForAvg.length) : null;
-
-  const totalMinutes = sum(dayMinutes);
-  const completedCount = allItems.filter(x => x.completed).length;
-  const totalCount = allItems.length;
-  const completionRate = totalCount ? Math.round((completedCount / totalCount) * 100) : null;
-
-  const topScreen = mostCommon(allItems.map(x => x.screen).filter(Boolean));
-  const topReason = mostCommon(allItems.map(x => x.reason).filter(Boolean));
-
-  container.innerHTML = `
-    <div style="background:#f5f5f5; padding:12px;">
-      <div><strong>평균 점수:</strong> ${avgScore ?? "-"}점</div>
-      <div><strong>총 낭비 시간:</strong> ${totalMinutes}분</div>
-      <div><strong>완료율(제약 지킴):</strong> ${completionRate ?? "-"}%</div>
-      <div><strong>가장 많이 본 화면:</strong> ${topScreen ?? "-"}</div>
-      <div><strong>가장 흔한 이유:</strong> ${topReason ?? "-"}</div>
-    </div>
+  const missionRate = missionTotal ? Math.round((missionDone / missionTotal) * 100) : 0;
+  summary.innerHTML = `
+    <div class="pill">총 XP: ${totalXP}</div>
+    <div class="pill">운동 XP: ${runXP}</div>
+    <div class="pill">공부 XP: ${studyXP}</div>
+    <div class="pill">미션 성공률: ${missionRate}%</div>
   `;
 
-  drawWeeklyChart(canvas, days, dayScores, dayMinutes);
+  drawWeeklyChart(canvas, days, dayScores);
+
+  // weekly AI comment (state에 저장해도 되지만 MVP는 DOM 유지)
+  if (!weeklyAI.dataset.text) weeklyAI.innerText = "";
 }
 
-function drawWeeklyChart(canvas, days, dayScores, dayMinutes) {
+function drawWeeklyChart(canvas, days, dayScores) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  // 여백
-  const padL = 30, padR = 10, padT = 10, padB = 30;
+  const padL = 38, padR = 12, padT = 12, padB = 32;
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
-  // 축 그리기
+  // axes
   ctx.beginPath();
   ctx.moveTo(padL, padT);
   ctx.lineTo(padL, padT + plotH);
   ctx.lineTo(padL + plotW, padT + plotH);
   ctx.stroke();
 
-  // 점수(0~100)를 막대 높이로
-  const n = days.length;
-  const gap = 6;
-  const barW = (plotW - gap * (n - 1)) / n;
+  // y range: 0..1000 fixed
+  const minY = 0, maxY = 1000;
 
-  // 분(minutes)은 점수 막대 위에 작은 선으로 표시(스케일 따로)
-  const maxMin = Math.max(1, ...dayMinutes);
+  const n = days.length;
+  const gap = 8;
+  const barW = (plotW - gap * (n - 1)) / n;
 
   for (let i = 0; i < n; i++) {
     const x = padL + i * (barW + gap);
+    const s = dayScores[i];
 
-    // 점수 막대
-    const score = dayScores[i];
-    const scoreH = (typeof score === "number") ? (score / 100) * plotH : 0;
-    const y = padT + plotH - scoreH;
-
-    ctx.fillRect(x, y, barW, scoreH);
-
-    // minutes marker (0~maxMin -> 0~plotH)
-    const m = dayMinutes[i] || 0;
-    const my = padT + plotH - (m / maxMin) * plotH;
-    ctx.beginPath();
-    ctx.moveTo(x, my);
-    ctx.lineTo(x + barW, my);
-    ctx.stroke();
-
-    // 라벨(날짜의 MM-DD)
-    const label = days[i].slice(5);
+    const label = days[i].slice(5); // MM-DD
     ctx.fillText(label, x, padT + plotH + 20);
+
+    if (typeof s !== "number") continue;
+
+    const norm = (s - minY) / (maxY - minY);
+    const bh = clamp(norm, 0, 1) * plotH;
+    const y = padT + plotH - bh;
+
+    ctx.fillRect(x, y, barW, bh);
+    ctx.fillText(String(s), x, y - 4);
   }
 
-  // 범례
-  ctx.fillText("막대=점수, 선=분(상대)", padL, padT + 10);
+  ctx.fillText("주간 SCORE", padL, padT + 10);
 }
 
+// ----- Core actions -----
+async function applyActivity(type) {
+  const state = loadState();
+  const logs = pruneLogs(loadLogs());
+  const today = isoToday();
 
+  // Determine streak
+  let streak = state.streak || 0;
+  const last = state.lastActiveISO;
 
-function showResultText(text, meta) {
-  const lines = String(text).split("\n").filter(l => l.trim() !== "");
-  const scoreLine = meta ? `레벨: ${meta.level} · 점수: ${meta.score}점` : "";
+  if (last === today) {
+    // same day: keep streak
+  } else if (last && daysBetween(last, today) === 1) {
+    streak += 1;
+  } else {
+    streak = 1;
+  }
 
-  // 1줄은 AI가 써도 되지만, 너는 제품을 만든다. 1줄은 시스템이 장악한다.
-  const line1 = scoreLine ? `${scoreLine} — ${lines[0] || ""}` : (lines[0] || "");
+  // Calculate XP
+  let baseXP = 0;
+  let input = null;
 
-  document.getElementById("result").innerHTML = `
-    <p><strong>${line1}</strong></p>
-    <p>${lines[1] || ""}</p>
-    <p style="color:red;">${lines[2] || ""}</p>
-  `;
-}
+  if (type === "run") {
+    const km = safeFloat(document.getElementById("runKm").value);
+    const minutes = safeFloat(document.getElementById("runMin").value);
+    if (km <= 0 || minutes <= 0) throw new Error("러닝 입력값이 올바르지 않다.");
+    baseXP = calcRunXP(km, minutes);
+    input = { km, minutes };
+  } else {
+    const sets = safeInt(document.getElementById("studySets").value);
+    if (sets <= 0) throw new Error("공부 세트 입력값이 올바르지 않다.");
+    baseXP = calcStudyXP(sets);
+    input = { sets };
+  }
 
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
+  // apply caps
+  const todaySoFar = sumTodayXP(logs, today);
+  let xp = baseXP;
 
-function calcScore(minutes, reason) {
-  const m = Number(minutes) || 0;
+  // streak bonus included but still within cap
+  const streakBonus = calcStreakBonus(streak);
+  xp += streakBonus;
 
-  const reasonPenaltyMap = {
-    "할 일을 피하려고": 15,
-    "습관적으로": 8,
-    "피곤해서": 10,
-    "심심해서": 5
+  // cap to daily remaining
+  const remaining = Math.max(0, DAILY_XP_CAP - todaySoFar);
+  xp = Math.min(xp, remaining);
+
+  const before = safeInt(state.score);
+  const after = clamp(before + xp, SCORE_MIN, SCORE_MAX);
+
+  // Create log entry
+  const log = {
+    id: newId(),
+    createdAt: Date.now(),
+    dateISO: today,
+    type,
+    input,
+    xp,
+    scoreBefore: before,
+    scoreAfter: after,
+    mission: null
   };
-  const reasonPenalty = reasonPenaltyMap[reason] ?? 8;
 
-  // 시간 패널티: 0~50 사이에서 완만하게 증가
-  // m=0 -> 0, m=30 -> ~21, m=120 -> ~38, m=240 -> ~44
-  const timePenalty = 50 * (1 - Math.exp(-m / 60));
+  logs.push(log);
 
-  const raw = 100 - timePenalty - reasonPenalty;
-  return Math.round(Math.max(0, Math.min(100, raw)));
-}
+  // Update state
+  state.score = after;
+  state.level = levelFromScore(after);
+  state.streak = streak;
+  state.lastActiveISO = today;
 
-function calcLevel(score) {
-  if (score >= 85) return "S";
-  if (score >= 70) return "A";
-  if (score >= 55) return "B";
-  if (score >= 40) return "C";
-  return "D";
-}
+  // Generate mission if missing for today
+  if (!state.todayMission || state.todayMission.dateISO !== today) {
+    // Build a tiny context from last 7 days
+    const recent = logs
+      .filter(l => daysBetween(l.dateISO, today) <= 6)
+      .slice(-20)
+      .map(l => ({
+        dateISO: l.dateISO,
+        type: l.type,
+        xp: l.xp,
+        input: l.input
+      }));
 
-function streakBonus(streak) {
-  if (streak >= 3) return 10;
-  if (streak === 2) return 8;
-  if (streak === 1) return 5;
-  return 0;
-}
+    try {
+      const ai = await fetchMission({
+        mode: "mission",
+        todayISO: today,
+        activityType: type,
+        recent
+      });
 
-function daysBetween(aISO, bISO) {
-  // aISO, bISO: "YYYY-MM-DD"
-  const a = new Date(aISO + "T00:00:00");
-  const b = new Date(bISO + "T00:00:00");
-  const ms = b - a;
-  return Math.round(ms / (1000 * 60 * 60 * 24));
-}
-
-// 기록 전체를 훑어서 streak/finalScore/level을 재계산
-function recomputeProgress(history) {
-  // 날짜 오름차순(과거 -> 현재)로 정렬해서 streak 계산
-  const sorted = [...history].sort((x, y) => (x.dateISO || "").localeCompare(y.dateISO || ""));
-
-  let streak = 0;
-  let prevDate = null;
-
-  for (const item of sorted) {
-    // dateISO 없는 옛 기록은 streak 계산 제외(안전)
-    if (!item.dateISO) {
-      item.streak = 0;
-      item.finalScore = item.baseScore ?? item.score ?? 0;
-      item.level = calcLevel(item.finalScore);
-      continue;
+      const text = String(ai.missionText || "").trim();
+      if (text) {
+        state.todayMission = {
+          dateISO: today,
+          text,
+          completed: false,
+          bonusXp: MISSION_BONUS_XP
+        };
+      }
+      const weekly = String(ai.weeklyComment || "").trim();
+      if (weekly) {
+        const weeklyAI = document.getElementById("weeklyAI");
+        if (weeklyAI) {
+          weeklyAI.dataset.text = weekly;
+          weeklyAI.innerText = `AI 코멘트: ${weekly}`;
+        }
+      }
+    } catch (e) {
+      // AI 실패해도 앱은 진행
+      state.todayMission = {
+        dateISO: today,
+        text: "오늘 미션: 10분 스트레칭(또는 정리) 후 완료 체크",
+        completed: false,
+        bonusXp: MISSION_BONUS_XP
+      };
     }
-
-    const isConsecutive =
-      prevDate && daysBetween(prevDate, item.dateISO) === 1;
-
-    if (item.completed) {
-      streak = isConsecutive ? (streak + 1) : 1;
-    } else {
-      streak = 0;
-    }
-
-    item.streak = streak;
-
-    const base = Number(item.baseScore ?? item.score ?? 0);
-    const bonus = streakBonus(item.streak);
-    item.finalScore = clamp(base + bonus, 0, 100);
-    item.level = calcLevel(item.finalScore);
-
-    prevDate = item.dateISO;
   }
 
-  // 원래 배열(history)에 반영 (id로 매칭)
-  const map = new Map(sorted.map(x => [x.id, x]));
-  return history.map(x => map.get(x.id) || x);
+  // Attach mission snapshot to today's log (for history display)
+  log.mission = state.todayMission
+    ? { text: state.todayMission.text, completed: state.todayMission.completed, bonusXp: state.todayMission.bonusXp }
+    : null;
+
+  // Persist
+  saveLogs(logs);
+  saveState(state);
+
+  // UI
+  renderAll();
+
+  // Apply result text
+  const applyResult = document.getElementById("applyResult");
+  if (applyResult) {
+    const delta = after - before;
+    const typeLabel = type === "run" ? "러닝" : "공부";
+    applyResult.innerHTML = `
+      <div><strong>${typeLabel} XP 적용 완료</strong></div>
+      <div>획득 XP: <strong>${xp}</strong> (기본 ${baseXP}, 스트릭 보너스 ${streakBonus}, 일일 상한 반영)</div>
+      <div>SCORE: <strong>${before} → ${after}</strong> (<span class="${delta >= 0 ? "ok" : "danger"}">${delta >= 0 ? "+" : ""}${delta}</span>)</div>
+    `;
+  }
 }
 
+function completeMission() {
+  const state = loadState();
+  const logs = pruneLogs(loadLogs());
+  const today = isoToday();
 
-document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
-  localStorage.removeItem(STORAGE_KEY);
-  renderHistory();
-});
-
-renderHistory();
-renderWeeklyReport();
-
-let selectedRecordId = null;
-
-function setSelectedRecord(id) {
-  selectedRecordId = id;
-  renderCompleteSection();
-  renderActionSection();
-
-}
-
-function renderCompleteSection() {
-  const section = document.getElementById("completeSection");
-  const check = document.getElementById("completeCheck");
-  const info = document.getElementById("completeInfo");
-  if (!section || !check || !info) return;
-
-  const history = loadHistory();
-  const rec = history.find(x => x.id === selectedRecordId);
-
-  if (!rec) {
-    section.style.display = "none";
-    return;
+  if (!state.todayMission || state.todayMission.dateISO !== today) {
+    throw new Error("오늘 미션이 없다.");
+  }
+  if (state.todayMission.completed) {
+    return; // already done
   }
 
-  section.style.display = "block";
-  check.checked = !!rec.completed;
+  // Apply bonus XP (respect daily cap)
+  const todaySoFar = sumTodayXP(logs, today);
+  const remaining = Math.max(0, DAILY_XP_CAP - todaySoFar);
+  const bonus = Math.min(state.todayMission.bonusXp, remaining);
 
-  const base = Number(rec.baseScore ?? rec.score ?? 0);
-  const streak = Number(rec.streak ?? 0);
-  const bonus = rec.completed ? streakBonus(streak) : 0;
-  const finalScore = rec.completed ? rec.finalScore : base;
+  const before = safeInt(state.score);
+  const after = clamp(before + bonus, SCORE_MIN, SCORE_MAX);
 
-  info.innerText = rec.completed
-    ? `완료 처리됨 · 스트릭 ${streak}일 · 보너스 +${bonus} · 최종 ${finalScore}점`
-    : `미완료 · 완료 체크 시 보너스 적용 (스트릭에 따라 +5~+10)`;
+  // Update state
+  state.score = after;
+  state.level = levelFromScore(after);
+  state.todayMission.completed = true;
+
+  // Add a log entry for mission bonus (so history reflects it)
+  logs.push({
+    id: newId(),
+    createdAt: Date.now(),
+    dateISO: today,
+    type: "study", // type doesn't matter here; keep simple
+    input: { mission: true },
+    xp: bonus,
+    scoreBefore: before,
+    scoreAfter: after,
+    mission: { text: state.todayMission.text, completed: true, bonusXp: state.todayMission.bonusXp }
+  });
+
+  saveState(state);
+  saveLogs(logs);
+
+  renderAll();
 }
 
-document.getElementById("completeCheck")?.addEventListener("change", (e) => {
-  const checked = e.target.checked;
-
-  const history = loadHistory();
-  const idx = history.findIndex(x => x.id === selectedRecordId);
-  if (idx === -1) return;
-
-  history[idx].completed = checked;
-
-  const recomputed = recomputeProgress(history);
-  saveHistory(recomputed);
-
-  // 결과/기록/평균 다시 렌더
+// ----- Render all -----
+function renderAll() {
+  renderHeader();
+  renderMission();
   renderHistory();
   renderWeeklyReport();
-  setSelectedRecord(recomputed[0]?.id);
-  // 현재 선택 기록 다시 표시(점수/레벨 갱신 반영)
-  const rec = recomputed.find(x => x.id === selectedRecordId);
-  if (rec) {
-    showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
-  }
-  renderCompleteSection();
-});
-
-
-function extractConstraint(text) {
-  const lines = String(text).split("\n").map(l => l.trim()).filter(Boolean);
-  // "3."으로 시작하는 줄 찾기
-  const line3 = lines.find(l => l.startsWith("3."));
-  return line3 ? line3.replace(/^3\.\s*/, "") : (lines[2] || "");
 }
 
-const ACTION_KEY = "levelup_action_v1";
-let timerInterval = null;
+// ----- Event wiring -----
+function init() {
+  // Tabs
+  document.getElementById("tabRun").addEventListener("click", () => setActiveTab("run"));
+  document.getElementById("tabStudy").addEventListener("click", () => setActiveTab("study"));
 
-function renderActionSection() {
-  const section = document.getElementById("actionSection");
-  const actionTextEl = document.getElementById("actionText");
-  const timerTextEl = document.getElementById("timerText");
-  const startBtn = document.getElementById("startActionBtn");
-  const stopBtn = document.getElementById("stopActionBtn");
+  // Apply button
+  document.getElementById("applyBtn").addEventListener("click", async () => {
+    const btn = document.getElementById("applyBtn");
+    const tabRunActive = document.getElementById("tabRun").classList.contains("active");
+    const type = tabRunActive ? "run" : "study";
 
-  if (!section || !actionTextEl || !timerTextEl || !startBtn || !stopBtn) return;
+    try {
+      btn.disabled = true;
+      btn.innerText = "적용 중...";
 
-  const history = loadHistory();
-  const rec = history.find(x => x.id === selectedRecordId);
-  if (!rec) {
-    section.style.display = "none";
-    return;
-  }
-
-  // 선택된 기록의 3번 제약 텍스트
-  const constraint = extractConstraint(rec.resultText);
-  actionTextEl.innerText = `제약: ${constraint}`;
-
-  section.style.display = "block";
-
-  const action = loadActionState();
-
-  if (action && action.recordId === rec.id) {
-    // 진행중
-    startBtn.style.display = "none";
-    stopBtn.style.display = "inline-block";
-    updateTimerText(action, timerTextEl);
-    startTimerTick();
-  } else {
-    // 미진행
-    startBtn.style.display = "inline-block";
-    stopBtn.style.display = "none";
-    timerTextEl.innerText = "";
-    stopTimerTick();
-  }
-}
-
-function loadActionState() {
-  try {
-    return JSON.parse(localStorage.getItem(ACTION_KEY));
-  } catch {
-    return null;
-  }
-}
-function saveActionState(obj) {
-  localStorage.setItem(ACTION_KEY, JSON.stringify(obj));
-}
-function clearActionState() {
-  localStorage.removeItem(ACTION_KEY);
-}
-
-
-function updateTimerText(action, el) {
-  const now = Date.now();
-  const remainingMs = action.endsAt - now;
-
-  if (remainingMs <= 0) {
-    el.innerText = "완료! 제약 달성.";
-    onActionCompleted(action.recordId);
-    return;
-  }
-
-  const totalSec = Math.floor(remainingMs / 1000);
-  const mm = Math.floor(totalSec / 60);
-  const ss = totalSec % 60;
-  el.innerText = `남은 시간: ${mm}분 ${ss}초`;
-}
-
-function startTimerTick() {
-  if (timerInterval) return;
-  timerInterval = setInterval(() => {
-    const timerTextEl = document.getElementById("timerText");
-    const action = loadActionState();
-    if (!action || !timerTextEl) return stopTimerTick();
-    updateTimerText(action, timerTextEl);
-  }, 1000);
-}
-
-function stopTimerTick() {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-}
-
-
-function onActionCompleted(recordId) {
-  clearActionState();
-  stopTimerTick();
-
-  const history = loadHistory();
-  const idx = history.findIndex(x => x.id === recordId);
-  if (idx !== -1) {
-    history[idx].completed = true;
-    const recomputed = recomputeProgress(history);
-    saveHistory(recomputed);
-
-    const rec = recomputed.find(x => x.id === recordId);
-    if (rec) {
-      showResultText(rec.resultText, { score: rec.finalScore, level: rec.level });
-      setSelectedRecord(rec.id);
+      await applyActivity(type);
+    } catch (e) {
+      const applyResult = document.getElementById("applyResult");
+      if (applyResult) {
+        applyResult.innerHTML = `<div class="danger"><strong>에러:</strong> ${e.message || e}</div>`;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "XP 적용";
     }
-  }
+  });
 
-  renderHistory();
-  renderCompleteSection();
-  renderActionSection();
+  // Mission done
+  document.getElementById("missionDoneBtn").addEventListener("click", () => {
+    try {
+      completeMission();
+    } catch (e) {
+      const status = document.getElementById("missionStatus");
+      if (status) status.innerText = `에러: ${e.message || e}`;
+    }
+  });
+
+  // Reset
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    const ok = confirm("정말 초기화할까? (모든 기록이 삭제됨)");
+    if (!ok) return;
+    localStorage.removeItem(STATE_KEY);
+    localStorage.removeItem(LOGS_KEY);
+    document.getElementById("applyResult").innerHTML = "";
+    const weeklyAI = document.getElementById("weeklyAI");
+    if (weeklyAI) {
+      weeklyAI.dataset.text = "";
+      weeklyAI.innerText = "";
+    }
+    renderAll();
+  });
+
+  // Initial render
+  renderAll();
 }
 
+init();
 
-
-
-document.getElementById("startActionBtn")?.addEventListener("click", () => {
-  const history = loadHistory();
-  const rec = history.find(x => x.id === selectedRecordId);
-  if (!rec) return;
-
-  const minutes = Number(document.getElementById("actionMinutes")?.value || 120);
-  const durationMs = Math.max(10, Math.min(600, minutes)) * 60 * 1000;
-
-  const action = {
-    recordId: rec.id,
-    startedAt: Date.now(),
-    endsAt: Date.now() + durationMs
-  };
-
-  saveActionState(action);
-  renderActionSection();
-});
-
-document.getElementById("stopActionBtn")?.addEventListener("click", () => {
-  clearActionState();
-  stopTimerTick();
-  renderActionSection();
-});
-
-
+// Service worker register (있어도 되고 없어도 됨)
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
-
