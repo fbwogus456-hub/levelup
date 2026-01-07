@@ -125,6 +125,9 @@ ${recentText}
       const yesterdayISO = String(body.yesterdayISO || "").trim();
       const yesterdayXP = Number(body.yesterdayXP);
       const todayGoalXP = Number(body.todayGoalXP);
+      const minKeepXP = Number(body.minKeepXP);
+      const deltaToGoalXP = Number(body.deltaToGoalXP);
+      const deltaToKeepXP = Number(body.deltaToKeepXP);
       const level = String(body.level || "").trim();
       const score = Number(body.score);
 
@@ -176,7 +179,7 @@ ${recentText}
         parsed = JSON.parse(r.text);
       } catch {
         parsed = {
-          nudgeText: `어제 ${yXP}XP 했다. 오늘 목표 ${goal}XP면 +${delta}XP만 더 하면 된다. 지금 10분만 해라.`
+          nudgeText: `유지 최소 ${Number.isFinite(minKeepXP) ? minKeepXP : goal}XP. 지금은 +${Number.isFinite(deltaToKeepXP) ? deltaToKeepXP : Math.max(0, goal - yXP)}XP만 채워라. 지금 10분만 해라.`
         };
       }
 
