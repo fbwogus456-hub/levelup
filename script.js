@@ -724,7 +724,6 @@ function completeMission() {
   }
 
 
-  // Add a log entry for mission bonus (so history reflects it)
 logs.push({
   id: newId(),
   createdAt: Date.now(),
@@ -734,7 +733,11 @@ logs.push({
   xp: bonus,
   scoreBefore: before,
   scoreAfter: after,
-  mission: { text: state.todayMission.text, completed: true, bonusXp: state.todayMission.bonusXp }
+  mission: {
+    text: state.todayMission.text,
+    completed: true,
+    bonusXp: state.todayMission.bonusXp
+  }
 });
 
   saveState(state);
