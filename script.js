@@ -905,7 +905,7 @@ function updateCapUX() {
     const left = formatTimeToMidnight();        // 예: "05:13:22"
 
     resetHint.style.display = "block";
-    resetHint.innerText = `${nextResetLabel} 리셋 (${left})`;
+    resetHint.innerText = `${nextResetLabel} 리셋 `;
 
     // 상한 도달 시 더 강하게(선택): 투명도 낮추기(=더 진하게)
     resetHint.style.opacity = capped ? "1" : "0.55";
