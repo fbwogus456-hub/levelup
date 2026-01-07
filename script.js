@@ -345,13 +345,38 @@ function renderWeeklyReport() {
   // ✅ 최근 7일 ISO 목록
   const days = lastNDaysISO(7);
 
-  // ✅ logs의 날짜 키가 혹시 달라도 대응 (dateISO가 없으면 date/iso 등도 검사)
-  const normalized = (Array.isArray(logs) ? logs : [])
-    .map(l => {
-      const dateISO = l?.dateISO || l?.date || l?.iso || null;
-      return { ...l, dateISO };
-    })
-    .filter(l => typeof l.dateISO === "string");
+// ✅ 어떤 형식이든 YYYY-MM-DD로 강제 정규화
+function normalizeISODate(v) {
+  if (v == null) return null;
+  let s = String(v).trim();
+
+  // 1) 2026-01-06T12:34:56... 같은 경우
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+
+  // 2) 2026. 1. 6. / 2026.1.6 / 2026 / 1 / 6 같은 경우
+  const m1 = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (m1) {
+    const yyyy = m1[1];
+    const mm = String(m1[2]).padStart(2, "0");
+    const dd = String(m1[3]).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // 3) 2026/01/06 같은 경우
+  const m2 = s.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
+  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+
+  return null;
+}
+
+// ✅ logs의 날짜 키가 혹시 달라도 대응 (정규화된 dateISO로 통일)
+const normalized = (Array.isArray(logs) ? logs : [])
+  .map(l => {
+    const raw = l?.dateISO ?? l?.date ?? l?.iso ?? l?.day ?? null;
+    const dateISO = normalizeISODate(raw);
+    return { ...l, dateISO };
+  })
+  .filter(l => typeof l.dateISO === "string" && /^\d{4}-\d{2}-\d{2}$/.test(l.dateISO));
 
   // ✅ day별로 묶기
   const byDay = new Map(days.map(d => [d, []]));
