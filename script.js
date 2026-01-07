@@ -3,6 +3,7 @@
 // Storage keys (V2로 분리해서 기존 1.0 데이터와 충돌 방지)
 const STATE_KEY = "levelup_state_v2";
 const LOGS_KEY = "levelup_logs_v2";
+const PROFILE_KEY = "levelup_profile_v1";
 
 // Config
 const SCORE_MIN = 0;
@@ -73,6 +74,86 @@ function loadLogs() {
     return [];
   }
 }
+
+function loadProfile() {
+  try {
+    return JSON.parse(localStorage.getItem(PROFILE_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+function saveProfile(p) {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+}
+
+function computeInitialScore(p) {
+  // 기준점: 500, 생활지표로 가감 (0~1000)
+  let score = 500;
+
+  // BMI 기반(극단값 벌점, 정상범위 가점)
+  const h = Number(p.heightCm) / 100;
+  const w = Number(p.weightKg);
+  if (h > 0 && w > 0) {
+    const bmi = w / (h * h);
+    if (bmi >= 18.5 && bmi <= 24.9) score += 60;
+    else if (bmi >= 17 && bmi < 18.5) score += 20;
+    else if (bmi > 24.9 && bmi <= 29.9) score += 10;
+    else score -= 30; // 너무 마르거나 비만이면 감점
+  }
+
+  // 수면(7~8시간 최적)
+  const sleep = Number(p.sleepHours);
+  if (!Number.isNaN(sleep)) {
+    if (sleep >= 7 && sleep <= 8) score += 70;
+    else if (sleep >= 6 && sleep < 7) score += 40;
+    else if (sleep >= 8 && sleep <= 9) score += 40;
+    else if (sleep >= 5 && sleep < 6) score += 10;
+    else score -= 40;
+  }
+
+  // 운동 빈도
+  const ex = Number(p.exercisePerWeek);
+  if (ex === 0) score -= 20;
+  else if (ex === 1) score += 20;
+  else if (ex === 3) score += 50;
+  else if (ex === 5) score += 80;
+
+  // 공부 시간
+  const st = Number(p.studyHoursPerDay);
+  if (st === 0) score -= 10;
+  else if (st === 1) score += 20;
+  else if (st === 3) score += 50;
+  else if (st === 6) score += 80;
+
+  // 나이(가벼운 보정: 너무 과하게 영향 주지 않음)
+  const age = Number(p.age);
+  if (!Number.isNaN(age) && age >= 10 && age <= 60) {
+    // 20대 기준 ± 작은 보정
+    score += clamp(20 - Math.abs(age - 22), -10, 20);
+  }
+
+  return clamp(Math.round(score), SCORE_MIN, SCORE_MAX);
+}
+
+function showProfileGate(show) {
+  const gate = document.getElementById("profileGate");
+  if (!gate) return;
+  gate.style.display = show ? "block" : "none";
+}
+
+function resetProgressForNewProfile(state) {
+  // 프로필 새로 저장 시, 진행 상태 초기화(혼란 방지)
+  state.score = null;
+  state.level = null;
+  state.streak = 0;
+  state.lastActiveISO = null;
+  state.todayMission = null;
+  saveState(state);
+
+  // 로그도 초기화(주간 리포트/최근 기록 꼬임 방지)
+  if (typeof saveLogs === "function") saveLogs([]);
+}
+
 
 function saveLogs(logs) {
   localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
@@ -628,24 +709,85 @@ function init() {
     if (!ok) return;
     localStorage.removeItem(STATE_KEY);
     localStorage.removeItem(LOGS_KEY);
+    localStorage.removeItem(PROFILE_KEY); // ✅ 프로필도 같이 초기화
+
     document.getElementById("applyResult").innerHTML = "";
     const weeklyAI = document.getElementById("weeklyAI");
     if (weeklyAI) {
       weeklyAI.dataset.text = "";
       weeklyAI.innerText = "";
     }
+
+    // ✅ 프로필 다시 받게 만들기
+    showProfileGate(true);
+  });
+
+  // ✅ 프로필 저장 버튼 (3번)
+  document.getElementById("saveProfileBtn")?.addEventListener("click", () => {
+    const hint = document.getElementById("profileHint");
+    if (hint) hint.innerText = "";
+
+    const age = Number(document.getElementById("pAge")?.value);
+    const sleepHours = Number(document.getElementById("pSleep")?.value);
+    const heightCm = Number(document.getElementById("pHeight")?.value);
+    const weightKg = Number(document.getElementById("pWeight")?.value);
+    const exercisePerWeek = Number(document.getElementById("pExercise")?.value);
+    const studyHoursPerDay = Number(document.getElementById("pStudy")?.value);
+
+    if (!age || !sleepHours || !heightCm || !weightKg) {
+      if (hint) hint.innerText = "나이/수면/키/몸무게는 필수다.";
+      return;
+    }
+
+    const profile = { age, sleepHours, heightCm, weightKg, exercisePerWeek, studyHoursPerDay };
+    saveProfile(profile);
+
+    const state = loadState();
+    resetProgressForNewProfile(state);
+
+    const initial = computeInitialScore(profile);
+    state.score = initial;
+    state.level = levelFromScore(initial);
+    state.streak = 0;
+    state.lastActiveISO = null;
+    saveState(state);
+
+    showProfileGate(false);
     renderAll();
   });
 
-  // Initial render
-  renderAll();
+  // Initial render (boot에서 처리)
 }
 
-init();
+// ✅ 앱 시작: 프로필 유무 체크 + 초기 점수 1회 세팅 + 렌더
+(function boot() {
+  init();
+  const profile = loadProfile();
+  const state = loadState();
+
+  if (!profile) {
+    showProfileGate(true);
+    return;
+  }
+
+  if (state.score == null) {
+    const initial = computeInitialScore(profile);
+    state.score = initial;
+    state.level = levelFromScore(initial);
+    state.streak = 0;
+    state.lastActiveISO = null;
+    saveState(state);
+  }
+
+  showProfileGate(false);
+  renderAll();
+})();
 
 // Service worker register (있어도 되고 없어도 됨)
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
+}
+
 }
