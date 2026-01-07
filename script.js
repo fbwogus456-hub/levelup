@@ -279,19 +279,6 @@ function minKeepXPForToday(currentScore, currentLevel) {
   return clamp(Math.ceil(xp), 0, DAILY_XP_CAP);
 }
 
-function getLevelBounds(score) {
-  // 레벨 경계: 300/500/700/850 (상한 1000)
-  // Bronze: 0~299, Silver: 300~499, Gold: 500~699, Platinum: 700~849, Diamond: 850~1000
-  const s = safeInt(score);
-
-  if (s >= 850) return { low: 850, next: SCORE_MAX, nextLabel: "상한" };
-  if (s >= 700) return { low: 700, next: 850, nextLabel: "Diamond" };
-  if (s >= 500) return { low: 500, next: 700, nextLabel: "Platinum" };
-  if (s >= 300) return { low: 300, next: 500, nextLabel: "Gold" };
-  return { low: 0, next: 300, nextLabel: "Silver" };
-}
-
-
 // ----- XP calculations -----
 function calcRunXP(km, minutes) {
   const k = safeFloat(km);
