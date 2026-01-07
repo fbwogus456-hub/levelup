@@ -162,7 +162,8 @@ ${recentText}
 
 어제 XP: ${yXP}
 오늘 목표 XP: ${goal}
-오늘 최소 추가 필요 XP: ${delta}
+레벨 유지 최소 XP: ${Number.isFinite(minKeepXP) ? minKeepXP : "-"}
+유지까지 필요한 추가 XP: ${Number.isFinite(deltaToKeepXP) ? deltaToKeepXP : "-"}오늘 최소 추가 필요 XP: ${delta}
 
 요청:
 - nudgeText에 위 수치를 활용해 짧고 단호한 문구 1개를 만들어라.
