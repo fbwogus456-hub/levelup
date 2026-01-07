@@ -214,12 +214,17 @@ function getLevelBounds(score) {
     const b = LEVEL_BOUNDS[i];
     if (s >= b.low) {
       const next = LEVEL_BOUNDS[i + 1] || null;
+
       return {
         label: b.label,
         low: b.low,
-        high: b.high,
-        nextLow: next ? next.low : SCORE_MAX,
-        nextLabel: next ? next.label : null
+
+        // high가 누락되어도 안전하게 보정
+        high: Number.isFinite(Number(b.high)) ? b.high : (next ? next.low - 1 : SCORE_MAX),
+
+        // 마지막 레벨이면 "다음 경계"를 high+1로 잡아 진행률 계산이 자연스럽게 되게 함
+        nextLow: next ? next.low : (Number.isFinite(Number(b.high)) ? (b.high + 1) : (SCORE_MAX + 1)),
+        nextLabel: next ? next.label : "MAX"
       };
     }
   }
