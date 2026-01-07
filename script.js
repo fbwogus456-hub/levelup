@@ -1325,7 +1325,6 @@ function init() {
     try {
       btn.disabled = true;
       btn.innerText = "적용 중...";
-
       await applyActivity(type);
     } catch (e) {
       const applyResult = document.getElementById("applyResult");
@@ -1352,22 +1351,25 @@ function init() {
   document.getElementById("resetBtn").addEventListener("click", () => {
     const ok = confirm("정말 초기화할까? (모든 기록이 삭제됨)");
     if (!ok) return;
+
     localStorage.removeItem(STATE_KEY);
     localStorage.removeItem(LOGS_KEY);
-    localStorage.removeItem(PROFILE_KEY); // ✅ 프로필도 같이 초기화
+    localStorage.removeItem(PROFILE_KEY);
 
-    document.getElementById("applyResult").innerHTML = "";
+    const applyResult = document.getElementById("applyResult");
+    if (applyResult) applyResult.innerHTML = "";
+
     const weeklyAI = document.getElementById("weeklyAI");
     if (weeklyAI) {
       weeklyAI.dataset.text = "";
       weeklyAI.innerText = "";
     }
 
-    // ✅ 프로필 다시 받게 만들기
+    // 프로필 다시 받게
     showProfileGate(true);
   });
 
-  // ✅ 프로필 저장 버튼 (3번)
+  // 프로필 저장 버튼
   document.getElementById("saveProfileBtn")?.addEventListener("click", () => {
     const hint = document.getElementById("profileHint");
     if (hint) hint.innerText = "";
@@ -1400,13 +1402,12 @@ function init() {
     showProfileGate(false);
     renderAll();
   });
-
-  // Initial render (boot에서 처리)
 }
 
 // ✅ 앱 시작: 프로필 유무 체크 + 초기 점수 1회 세팅 + 렌더
 (function boot() {
   init();
+
   const profile = loadProfile();
   const state = loadState();
 
@@ -1426,9 +1427,6 @@ function init() {
 
   showProfileGate(false);
   renderAll();
-
-  // ✅ 카운트다운 1초 갱신 (헤더/버튼 UX만 가볍게 갱신)
-  startMidnightCountdownTick();
 })();
 
 // Service worker register (있어도 되고 없어도 됨)
