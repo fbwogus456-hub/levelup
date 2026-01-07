@@ -274,6 +274,49 @@ function sumTodayXP(logs, dateISO) {
     .reduce((a, l) => a + safeInt(l.xp), 0);
 }
 
+function getLevelBounds(level) {
+  // 각 레벨의 하한선/다음 경계선(다음 레벨 진입선)
+  // Diamond의 다음 경계는 1000(상한)으로 둔다.
+  if (level === "Diamond") return { lower: 850, next: 1000 };
+  if (level === "Platinum") return { lower: 700, next: 850 };
+  if (level === "Gold") return { lower: 500, next: 700 };
+  if (level === "Silver") return { lower: 300, next: 500 };
+  return { lower: 0, next: 300 }; // Bronze
+}
+
+function compute7DayStats(logs, todayISO) {
+  // 최근 7일(오늘 포함) XP 합/평균 + 0XP(미활동) 일수
+  const days = lastNDaysISO(7); // 이미 위에서 쓰고 있음
+  const byDayXP = new Map(days.map(d => [d, 0]));
+
+  for (const l of logs) {
+    if (!l?.dateISO) continue;
+    if (!byDayXP.has(l.dateISO)) continue;
+    byDayXP.set(l.dateISO, byDayXP.get(l.dateISO) + safeInt(l.xp));
+  }
+
+  const xpList = days.map(d => byDayXP.get(d) || 0);
+  const total = xpList.reduce((a, b) => a + b, 0);
+  const avg = Math.round(total / 7);
+
+  const zeroDays = xpList.filter(x => x === 0).length;
+
+  return { days, xpList, total, avg, zeroDays };
+}
+
+function recommendTodayXP(avg7, zeroDays, remainingToday) {
+  // “오늘 목표 XP” 자동조정 로직(보수적으로)
+  // - 최근 평균이 낮고 0일이 많으면 목표를 조금 끌어올림
+  // - 최소 30, 최대 남은치(remainingToday)로 캡
+  const base = avg7;
+  const bump = zeroDays >= 3 ? 20 : (zeroDays === 2 ? 12 : (zeroDays === 1 ? 6 : 0));
+  const raw = base + bump;
+
+  const goal = clamp(Math.round(raw), 30, DAILY_XP_CAP);
+  return Math.min(goal, remainingToday);
+}
+
+
 // ----- AI mission (serverless) -----
 async function fetchMission(context) {
   const res = await fetch("/api/analyze", {
@@ -999,12 +1042,36 @@ async function applyActivity(type) {
       }));
 
     try {
+      const todayXPSoFar = sumTodayXP(logs, today);
+      const remainingToday = Math.max(0, DAILY_XP_CAP - todayXPSoFar);
+
+      const bounds = getLevelBounds(state.level);
+      const toKeepLevelMinXP = 0; // 현재 구조(점수 하락 없음)에서는 “유지 최소 XP”는 0이 정상
+      const toNextBoundaryXP = Math.max(0, bounds.next - safeInt(state.score));
+
+      const s7 = compute7DayStats(logs, today);
+      const recommendedXP = recommendTodayXP(s7.avg, s7.zeroDays, remainingToday);
+
       const ai = await fetchMission({
         mode: "mission",
         todayISO: today,
         activityType: type,
-        recent
+        recent,
+
+        // ✅ AI가 “유지/다음” 압박 문구를 숫자로 만들 수 있게 전달
+        currentScore: safeInt(state.score),
+        currentLevel: state.level,
+        levelLower: bounds.lower,
+        levelNext: bounds.next,
+        toKeepLevelMinXP,
+        toNextBoundaryXP,
+        todayXPSoFar,
+        remainingToday,
+        avg7XP: s7.avg,
+        zeroDays7: s7.zeroDays,
+        recommendedXP
       });
+
 
       const text = String(ai.missionText || "").trim();
       if (text) {
