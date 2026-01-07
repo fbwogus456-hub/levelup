@@ -374,6 +374,15 @@ function formatTimeToMidnight() {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
+function nextMidnightLabel() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0); // 다음 00:00
+
+  const mm = String(next.getMonth() + 1).padStart(2, "0");
+  const dd = String(next.getDate()).padStart(2, "0");
+  return `${mm}-${dd} 00:00`;
+}
 
 function renderMission() {
   const state = loadState();
@@ -889,15 +898,17 @@ function updateCapUX() {
     btn.innerText = capped ? "오늘은 상한 도달" : "XP 적용";
   }
 
-  // ✅ applyBtn 아래 회색 문구(고정)
+  // ✅ resetHint: 상한 여부와 관계없이 항상 표시(약하게)
+  // ✅ 날짜는 "MM-DD 00:00" 형태로 표시
   if (resetHint) {
-    if (capped) {
-      resetHint.style.display = "block";
-      resetHint.innerText = `리셋까지 ${formatTimeToMidnight()} (내일 00:00)`;
-    } else {
-      resetHint.style.display = "none";
-      resetHint.innerText = "";
-    }
+    const nextResetLabel = nextMidnightLabel(); // 예: "01-08 00:00"
+    const left = formatTimeToMidnight();        // 예: "05:13:22"
+
+    resetHint.style.display = "block";
+    resetHint.innerText = `${nextResetLabel} 리셋 · 남은 시간 ${left}`;
+
+    // 상한 도달 시 더 강하게(선택): 투명도 낮추기(=더 진하게)
+    resetHint.style.opacity = capped ? "1" : "0.55";
   }
 
   // ✅ 상한 도달 시 applyResult 큰 카운트다운 표시
