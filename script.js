@@ -18,16 +18,15 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       return;
     }
 
-    // ✅ 여기부터 연타 방지 시작
+    // 연타 방지 시작 (검증 통과 후)
     btn.disabled = true;
-    const originalText = btn.innerText;
     btn.innerText = "분석 중...";
 
     const text = await getAnalysis({ screen, minutes, reason, intended });
 
     const score = calcScore(minutes, reason);
     const level = calcLevel(score);
-  
+
     showResultText(text, { score, level });
 
     addHistory({
@@ -47,20 +46,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     document.getElementById("result").innerText =
       "에러 발생: " + (e.message || e);
   } finally {
-      // 🔓 연타 방지 해제
     btn.disabled = false;
     btn.innerText = "레벨업 결과 보기";
-  }
-
-
-
-  } catch (e) {
-    document.getElementById("result").innerText =
-      "에러 발생: " + (e.message || e);
-  } finally {
-    // 🔓 연타 방지 해제 (무조건 실행)
-    btn.disabled = false;
-    btn.innerText = originalText;
   }
 });
 
