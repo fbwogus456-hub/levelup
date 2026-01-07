@@ -25,8 +25,14 @@ function isoToday() {
 function addDays(iso, delta) {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + delta);
-  return d.toISOString().slice(0, 10);
+
+  // ⚠️ toISOString() 쓰면 UTC로 바뀌어서 한국에서 날짜가 하루 밀릴 수 있음
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
+
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
