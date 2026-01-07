@@ -529,6 +529,34 @@ function completeMission() {
   state.level = levelFromScore(after);
   state.todayMission.completed = true;
 
+  // ✅ 주간 로그 저장 (안전 버전: 없으면 스킵, 앱 안 죽음)
+  try {
+    if (typeof loadLogs === "function" && typeof saveLogs === "function") {
+      const logs = loadLogs();
+
+      // 아래 값들은 네 applyActivity 안에 실제로 존재하는 변수명으로 바꿔야 한다.
+      // (일단 없으면 undefined로 들어가도 앱은 죽지 않는다)
+      logs.unshift({
+        id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+        dateISO: (typeof getTodayISO === "function")
+          ? getTodayISO()
+          : new Date().toISOString().slice(0, 10),
+        ts: Date.now(),
+        activityType: (typeof activityType !== "undefined") ? activityType : undefined,
+        amount: (typeof amount !== "undefined") ? amount : undefined,
+        xp: (typeof xp !== "undefined") ? xp : undefined,
+        scoreAfter: (typeof state !== "undefined" && state && typeof state.score !== "undefined")
+          ? state.score
+          : undefined
+      });
+
+      saveLogs(logs);
+    }
+  } catch (e) {
+    console.warn("log save skipped:", e);
+  }
+
+
   // Add a log entry for mission bonus (so history reflects it)
   logs.push({
     id: newId(),
