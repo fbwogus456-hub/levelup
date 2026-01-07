@@ -572,6 +572,18 @@ async function applyActivity(type) {
   const remaining = Math.max(0, DAILY_XP_CAP - todaySoFar);
   xp = Math.min(xp, remaining);
 
+  // ✅ XP가 0이면: 로그 저장/점수 반영/스트릭 갱신 모두 하지 않는다.
+  if (xp <= 0) {
+    const applyResult = document.getElementById("applyResult");
+    if (applyResult) {
+      applyResult.innerHTML = `
+        <div class="danger"><strong>오늘은 XP 상한( ${DAILY_XP_CAP} )에 도달했다.</strong></div>
+        <div class="muted">내일 다시 누적된다. (로그도 저장하지 않음)</div>
+      `;
+    }
+    return;
+  }
+
   const before = safeInt(state.score);
   const after = clamp(before + xp, SCORE_MIN, SCORE_MAX);
 
@@ -687,6 +699,18 @@ function completeMission() {
   const remaining = Math.max(0, DAILY_XP_CAP - todaySoFar);
   const bonus = Math.min(state.todayMission.bonusXp, remaining);
 
+  // ✅ 상한 때문에 보너스가 0이면: 완료는 처리하되 로그는 저장하지 않는다.
+  if (bonus <= 0) {
+    state.todayMission.completed = true;
+    saveState(state);
+
+    const status = document.getElementById("missionStatus");
+    if (status) status.innerText = "완료 처리됨 (오늘 XP 상한이라 보너스는 0)";
+
+    renderAll();
+    return;
+  }
+
   const before = safeInt(state.score);
   const after = clamp(before + bonus, SCORE_MIN, SCORE_MAX);
 
@@ -746,12 +770,34 @@ logs.push({
   renderAll();
 }
 
+function updateCapUX() {
+  const logs = loadLogs();
+  const today = isoToday();
+  const todayXP = sumTodayXP(logs, today);
+  const remaining = Math.max(0, DAILY_XP_CAP - todayXP);
+
+  const applyBtn = document.getElementById("applyBtn");
+  if (applyBtn) {
+    if (remaining <= 0) {
+      applyBtn.disabled = true;
+      applyBtn.innerText = "오늘 XP 상한 도달";
+    } else {
+      // init()에서 누를 때마다 "적용 중..."으로 바뀌므로,
+      // 평상시엔 원래 텍스트로 되돌린다.
+      if (applyBtn.innerText !== "적용 중...") applyBtn.innerText = "XP 적용";
+      applyBtn.disabled = false;
+    }
+  }
+}
+
+
 // ----- Render all -----
 function renderAll() {
   renderHeader();
   renderMission();
   renderHistory();
   renderWeeklyReport();
+  updateCapUX();
 }
 
 // ----- Event wiring -----
