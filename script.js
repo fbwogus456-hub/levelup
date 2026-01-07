@@ -244,15 +244,14 @@ function getLevelBounds(score) {
     nextLabel: "Silver",
     isMax: false
   };
-}
 
-  // fallback (이론상 안 탐)
   return {
     label: "Bronze",
     low: 0,
     high: 299,
     nextLow: 300,
-    nextLabel: "Silver"
+    nextLabel: "Silver",
+    isMax: false
   };
 }
 
@@ -1092,8 +1091,8 @@ async function applyActivity(type) {
     try {
       const todayXPSoFar = sumTodayXP(logs, today);
       const remainingToday = Math.max(0, DAILY_XP_CAP - todayXPSoFar);
+      const bounds = getLevelBounds(score);
 
-      const bounds = getLevelBounds(state.level);
       const toKeepLevelMinXP = 0; // 현재 구조(점수 하락 없음)에서는 “유지 최소 XP”는 0이 정상
       const toNextBoundaryXP = Math.max(0, bounds.next - safeInt(state.score));
 
