@@ -210,11 +210,11 @@ const LEVEL_BOUNDS = [
 function getLevelBounds(score) {
   const s = clamp(safeInt(score), SCORE_MIN, SCORE_MAX);
 
-  // 레벨 경계 정의 (오름차순)
+  // 레벨 경계(오름차순)
   const LEVELS = [
-    { label: "Bronze", low: 0, high: 299 },
+    { label: "Bronze", low: 0,   high: 299 },
     { label: "Silver", low: 300, high: 499 },
-    { label: "Gold", low: 500, high: 699 },
+    { label: "Gold", low: 500,   high: 699 },
     { label: "Platinum", low: 700, high: 849 },
     { label: "Diamond", low: 850, high: SCORE_MAX }
   ];
@@ -236,15 +236,6 @@ function getLevelBounds(score) {
   }
 
   // fallback
-  return {
-    label: "Bronze",
-    low: 0,
-    high: 299,
-    nextLow: 300,
-    nextLabel: "Silver",
-    isMax: false
-  };
-
   return {
     label: "Bronze",
     low: 0,
