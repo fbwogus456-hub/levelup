@@ -340,66 +340,76 @@ function renderWeeklyReport() {
   const weeklyAI = document.getElementById("weeklyAI");
   if (!summary || !canvas) return;
 
-  const logs = loadLogs();
-
-  // ✅ 최근 7일 ISO 목록
   const days = lastNDaysISO(7);
+  const rawLogs = loadLogs();
 
-// ✅ 어떤 형식이든 YYYY-MM-DD로 강제 정규화
-function normalizeISODate(v) {
-  if (v == null) return null;
-  let s = String(v).trim();
+  // --- dateISO 강제 정규화 ---
+  function normalizeISODate(v, fallbackCreatedAt) {
+    if (v != null) {
+      let s = String(v).trim();
 
-  // 1) 2026-01-06T12:34:56... 같은 경우
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      // 1) 2026-01-06T... → 2026-01-06
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
 
-  // 2) 2026. 1. 6. / 2026.1.6 / 2026 / 1 / 6 같은 경우
-  const m1 = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
-  if (m1) {
-    const yyyy = m1[1];
-    const mm = String(m1[2]).padStart(2, "0");
-    const dd = String(m1[3]).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
+      // 2) 2026. 1. 6. / 2026/1/6 / 2026년 1월 6일 등
+      const m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+      if (m) {
+        const yyyy = m[1];
+        const mm = String(m[2]).padStart(2, "0");
+        const dd = String(m[3]).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+
+      // 3) 2026/01/06 → 2026-01-06
+      const m2 = s.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
+      if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+    }
+
+    // 4) dateISO가 아예 없으면 createdAt(타임스탬프)로 생성
+    if (Number.isFinite(fallbackCreatedAt)) {
+      return new Date(fallbackCreatedAt).toISOString().slice(0, 10);
+    }
+
+    return null;
   }
 
-  // 3) 2026/01/06 같은 경우
-  const m2 = s.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
-  if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+  const normalized = (Array.isArray(rawLogs) ? rawLogs : [])
+    .map(l => {
+      const createdAt = Number(l?.createdAt ?? l?.ts ?? l?.created ?? NaN);
+      const rawDate = l?.dateISO ?? l?.date ?? l?.iso ?? l?.day ?? null;
+      const dateISO = normalizeISODate(rawDate, createdAt);
 
-  return null;
-}
+      return {
+        ...l,
+        createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+        dateISO
+      };
+    })
+    .filter(l => typeof l.dateISO === "string" && /^\d{4}-\d{2}-\d{2}$/.test(l.dateISO));
 
-// ✅ logs의 날짜 키가 혹시 달라도 대응 (정규화된 dateISO로 통일)
-const normalized = (Array.isArray(logs) ? logs : [])
-  .map(l => {
-    const raw = l?.dateISO ?? l?.date ?? l?.iso ?? l?.day ?? null;
-    const dateISO = normalizeISODate(raw);
-    return { ...l, dateISO };
-  })
-  .filter(l => typeof l.dateISO === "string" && /^\d{4}-\d{2}-\d{2}$/.test(l.dateISO));
-
-  // ✅ day별로 묶기
+  // --- byDay 만들기 (중요: normalized 사용) ---
   const byDay = new Map(days.map(d => [d, []]));
   for (const l of normalized) {
     if (byDay.has(l.dateISO)) byDay.get(l.dateISO).push(l);
   }
 
-  // ✅ dayScores 만들기 + 주간 합계
+  // --- 일별 점수 계산 ---
   const dayScores = [];
   let totalXP = 0;
   let runXP = 0;
   let studyXP = 0;
+  let missionDone = 0;
+  let missionTotal = 0;
 
   for (const d of days) {
     const items = (byDay.get(d) || []).slice();
     items.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
-    // dayScores: 그날 마지막 기록의 scoreAfter
     if (items.length === 0) {
       dayScores.push(null);
     } else {
       const last = items[items.length - 1];
-      const s = safeInt(last.scoreAfter);
+      const s = Number(last?.scoreAfter);
       dayScores.push(Number.isFinite(s) ? s : null);
     }
 
@@ -408,25 +418,32 @@ const normalized = (Array.isArray(logs) ? logs : [])
       totalXP += xp;
       if (it.type === "run") runXP += xp;
       if (it.type === "study") studyXP += xp;
+
+      if (it.mission) {
+        missionTotal += 1;
+        if (it.mission.completed) missionDone += 1;
+      }
     }
   }
 
-  // ✅ 요약 표시 (기록이 있어야 0이 아닌 값이 나와야 정상)
+  // --- 요약 렌더 ---
+  const missionRate = missionTotal ? Math.round((missionDone / missionTotal) * 100) : 0;
   summary.innerHTML = `
     <div class="pill">총 XP: ${totalXP}</div>
     <div class="pill">운동 XP: ${runXP}</div>
     <div class="pill">공부 XP: ${studyXP}</div>
-    <div class="pill">기록 수: ${normalized.length}</div>
+    <div class="pill">미션 성공률: ${missionRate}%</div>
   `;
 
-  // ✅ 디버그 텍스트(문제 원인 즉시 확인용): 매칭이 안 되면 dayScores가 전부 null일 것
+  // --- 디버그 로그 (지금 너 상황에서 필수) ---
   console.log("[weekly] days:", days);
+  console.log("[weekly] normalized dateISO list:", normalized.map(x => x.dateISO));
   console.log("[weekly] dayScores:", dayScores);
-  console.log("[weekly] normalized logs:", normalized);
 
+  // --- 차트 그리기 ---
   drawWeeklyChart(canvas, days, dayScores);
 
-  // weekly AI comment (없어도 차트는 반드시 그려져야 함)
+  // weekly AI comment (없어도 차트는 반드시 그려지게)
   if (weeklyAI) {
     if (!weeklyAI.dataset.text) weeklyAI.innerText = "";
   }
