@@ -1,93 +1,87 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    // 1) API KEY 체크 (가장 먼저)
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) {
-      return res.status(500).json({ error: "OPENAI_API_KEY is missing in env" });
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Missing OPENAI_API_KEY in environment variables." });
     }
 
-    // 2) fetch 존재 체크 (런타임 문제를 즉시 드러냄)
-    if (typeof fetch !== "function") {
-      return res.status(500).json({ error: "fetch is not available in this runtime" });
-    }
+    const { mode, todayISO, activityType, recent } = req.body || {};
 
-    // 3) body 체크 (비어있으면 바로 반환)
-    const body = req.body || {};
-    const { screen, minutes, reason, intended } = body;
+    // 매우 단순한 입력 검증
+    const type = activityType === "run" ? "run" : "study";
+    const recentText = Array.isArray(recent)
+      ? recent.slice(-20).map(r => JSON.stringify(r)).join("\n")
+      : "";
 
-    if (!screen || !minutes || !reason || !intended) {
-      return res.status(400).json({
-        error: "Missing required fields",
-        received: { screen, minutes, reason, intended }
-      });
-    }
+    const system = `
+너는 '레벨업' 앱의 미션 디자이너다.
+원칙:
+- 미션은 10~20분 안에 끝나야 한다.
+- 사용자가 당장 실행 가능한 행동이어야 한다.
+- 측정 가능하거나 완료 체크가 가능한 형태여야 한다.
+- 자책/비하/공격적인 표현 금지.
+출력은 반드시 아래 형식의 JSON만 출력한다. (코드블록 금지)
+{"missionText":"...","weeklyComment":"..."}
+    `.trim();
 
-    // 4) OpenAI 호출
+    const user = `
+오늘 날짜: ${todayISO}
+오늘 활동 타입: ${type} (run=운동/러닝, study=공부)
+최근 7일 요약(최대 20개):
+${recentText}
+
+요청:
+- missionText: 오늘 미션 1개(한 문장)
+- weeklyComment: 이번 주를 관통하는 조언 1줄(너무 길지 않게)
+    `.trim();
+
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`
+        "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
         input: [
-          {
-            role: "system",
-            content:
-              "너는 사용자의 하루를 냉정하게 평가하는 분석자다. 공감, 위로, 격려, 감정적 표현을 절대 사용하지 마라. 짧고 단정적으로 말하라. 반드시 3줄만 출력하라."
-          },
-          {
-            role: "user",
-            content: [
-              `1. 가장 오래 본 화면: ${screen}`,
-              `2. 사용 시간: ${minutes}분`,
-              `3. 이유: ${reason}`,
-              `4. 원래 하려던 일: ${intended}`,
-              "",
-              "다음 형식으로만 답변하라.",
-              "1. 오늘 가장 낭비된 시간 요약 (한 문장)",
-              "2. 이 행동의 회피 패턴 분석 (한 문장)",
-              "3. 내일 반드시 지켜야 할 단 하나의 행동 제약 (명령문)"
-            ].join("\n")
-          }
+          { role: "system", content: system },
+          { role: "user", content: user }
         ]
       })
     });
 
-    // 5) OpenAI가 에러면 그대로 반환 (중요)
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("OpenAI error:", response.status, errText);
-      return res.status(500).json({
-        error: "OpenAI request failed",
-        status: response.status,
-        detail: errText
-      });
-    }
-
     const data = await response.json();
 
-    // 6) 텍스트 안전 추출
-    const text =
-      data.output_text ||
-      data.output?.[0]?.content?.find(c => c.type === "output_text")?.text ||
-      data.output?.[0]?.content?.[0]?.text;
-
-    if (!text) {
-      return res.status(500).json({ error: "Empty AI response", raw: data });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data?.error?.message || "OpenAI request failed", raw: data });
     }
 
-    return res.status(200).json({ result: text });
-  } catch (err) {
-    return res.status(500).json({
-      error: "Unhandled server error",
-      message: err?.message,
-      stack: err?.stack
+    const text =
+      data.output_text ||
+      data.output?.[0]?.content?.[0]?.text ||
+      "";
+
+    // JSON 파싱 시도
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // JSON이 아니면 최소한의 안전한 폴백
+      parsed = {
+        missionText: type === "run"
+          ? "오늘 미션: 러닝 후 스트레칭 8분 하고 완료 체크"
+          : "오늘 미션: 내일 할 일 3개 적고 완료 체크",
+        weeklyComment: "이번 주는 '작게 시작해서 끊기지 않는 것'에만 집중해라."
+      };
+    }
+
+    return res.status(200).json({
+      missionText: String(parsed.missionText || "").trim(),
+      weeklyComment: String(parsed.weeklyComment || "").trim()
     });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "Server error" });
   }
 }
