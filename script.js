@@ -523,6 +523,22 @@ function completeMission() {
   const before = safeInt(state.score);
   const after = clamp(before + bonus, SCORE_MIN, SCORE_MAX);
 
+  // ✅ XP 적용 로그 저장(주간 리포트용)
+  const logs = loadLogs();
+
+  logs.unshift({
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    dateISO: getTodayISO ? getTodayISO() : (new Date().toISOString().slice(0, 10)),
+    ts: Date.now(),
+    activityType,
+    amount,
+    xp,
+    scoreAfter: state.score
+  });
+
+  saveLogs(logs);
+
+
   // Update state
   state.score = after;
   state.level = levelFromScore(after);
