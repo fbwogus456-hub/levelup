@@ -412,12 +412,10 @@ function renderHeader() {
   const next = safeInt(b.nextLow);
   const nextLabel = b.nextLabel ? String(b.nextLabel) : null;
 
-  // 진행 바: Diamond면 항상 100%, 아니면 현재 구간 비율
-  let progress = 1;
-  if (!b.isMax) {
-    const range = Math.max(1, next - low);
-    progress = clamp((score - low) / range, 0, 1);
-  }
+  // 진행 바: 현재 레벨 구간(low ~ nextLow)에서의 진행률
+  // Diamond도 (850~1000) 구간 진행률을 보여준다.
+  const range = Math.max(1, next - low);
+  const progress = clamp((score - low) / range, 0, 1);
   if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
 
   // 유지선 문구
