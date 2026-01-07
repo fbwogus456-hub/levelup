@@ -286,22 +286,57 @@ function renderHeader() {
 }
 
 let midnightTimer = null;
+let _lastISOForReset = null;
 
 function startMidnightCountdownTick() {
   if (midnightTimer) return;
+
+  // 처음 기준 날짜 저장
+  _lastISOForReset = isoToday();
 
   midnightTimer = setInterval(() => {
     // 프로필 게이트가 떠 있으면 굳이 갱신하지 않음
     const gate = document.getElementById("profileGate");
     if (gate && gate.style.display === "block") return;
 
+    // ✅ 날짜 변경(00:00) 감지
+    const nowISO = isoToday();
+    if (_lastISOForReset && nowISO !== _lastISOForReset) {
+      _lastISOForReset = nowISO;
+      onMidnightResetUI();
+    }
+
     // 헤더 카운트다운 갱신
     renderHeader();
 
-    // 상한 버튼 UX도 같이 갱신(이미 너가 추가한 함수)
+    // 상한 버튼 UX 갱신
     if (typeof updateCapUX === "function") updateCapUX();
   }, 1000);
 }
+
+function onMidnightResetUI() {
+  // 1) 버튼 즉시 활성화
+  const btn = document.getElementById("applyBtn");
+  if (btn) {
+    btn.disabled = false;
+    btn.innerText = "XP 적용";
+  }
+
+  // 2) 배너(=applyResult) 출력
+  const applyResult = document.getElementById("applyResult");
+  if (applyResult) {
+    applyResult.innerHTML = `
+      <div class="ok"><strong>XP 리셋됨.</strong> 오늘 다시 시작해라.</div>
+      <div class="muted" style="margin-top:6px;">
+        오늘 상한: ${DAILY_XP_CAP} XP
+      </div>
+    `;
+  }
+
+  // 3) 화면 전체 갱신(오늘 XP 0으로 보이게, 주간도 새 날짜 반영)
+  renderAll();
+}
+
 
 function msUntilMidnight() {
   const now = new Date();
@@ -817,21 +852,37 @@ logs.push({
 }
 
 function updateCapUX() {
-  const logs = loadLogs();
-  const today = isoToday();
-  const todayXP = sumTodayXP(logs, today);
-  const remaining = Math.max(0, DAILY_XP_CAP - todayXP);
+  const btn = document.getElementById("applyBtn");
+  const hint = document.getElementById("todayHint");
+  const applyResult = document.getElementById("applyResult");
 
-  const applyBtn = document.getElementById("applyBtn");
-  if (applyBtn) {
-    if (remaining <= 0) {
-      applyBtn.disabled = true;
-      applyBtn.innerText = "오늘 XP 상한 도달";
-    } else {
-      // init()에서 누를 때마다 "적용 중..."으로 바뀌므로,
-      // 평상시엔 원래 텍스트로 되돌린다.
-      if (applyBtn.innerText !== "적용 중...") applyBtn.innerText = "XP 적용";
-      applyBtn.disabled = false;
+  const today = isoToday();
+  const logs = loadLogs();
+  const todayXP = sumTodayXP(logs, today);
+  const remainingXP = Math.max(0, DAILY_XP_CAP - todayXP);
+
+  // 버튼/힌트 UX
+  if (btn) {
+    btn.disabled = remainingXP <= 0;
+    btn.innerText = remainingXP <= 0 ? "오늘은 상한 도달" : "XP 적용";
+  }
+
+  // 상단 힌트는 renderHeader가 담당(중복 갱신 방지)
+  // hint는 여기서 굳이 건드리지 않아도 됨
+
+  // ✅ 상한 도달 시 applyResult에 큰 카운트다운 표시
+  if (applyResult) {
+    if (remainingXP <= 0) {
+      const cd = formatTimeToMidnight();
+      applyResult.innerHTML = `
+        <div class="danger"><strong>오늘 XP 상한( ${DAILY_XP_CAP} )에 도달했다.</strong></div>
+        <div style="margin-top:6px; font-size:22px; font-weight:800;">
+          리셋까지 ${cd}
+        </div>
+        <div class="muted" style="margin-top:6px;">
+          00:00에 자동으로 다시 활성화된다.
+        </div>
+      `;
     }
   }
 }
